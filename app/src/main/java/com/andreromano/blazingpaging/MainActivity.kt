@@ -1,5 +1,6 @@
 package com.andreromano.blazingpaging
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -8,6 +9,8 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.AsyncListDiffer
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.andreromano.blazingpaging.core.ErrorKt
@@ -18,6 +21,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import timber.log.Timber
 
+
+/** TODO:
+ *      DiffUtil
+ *      AsyncDiffUtil
+ *      Headers/Footers
+ *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
+ *      Allow DB+Network
+ *
+ */
 class MainActivity : AppCompatActivity() {
 
     private val dataAdapter by lazy {
@@ -94,7 +106,7 @@ class MainActivity : AppCompatActivity() {
         private val pageSize: Int,
         private val dataSource: DataSource<T>,
     ) {
-        internal lateinit var adapterCallback: AdapterCallback
+        internal var adapterCallback: AdapterCallback? = null
         var state: State = State.IDLE
             private set(value) {
                 field = value
@@ -104,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         val stateFlow = _stateFlow
 
         private val cache: MutableList<T> = mutableListOf()
+        val currentList: List<T> = cache
         private var currentPage: Int = 0
         private var hasReachedEnd = false // TODO: Maybe move to the State?
 
@@ -155,7 +168,7 @@ class MainActivity : AppCompatActivity() {
                         Handler(Looper.getMainLooper()).post {
                             hasReachedEnd = result.hasReachedEnd
                             state = State.IDLE
-                            adapterCallback.notifyItemRangeInserted(cache.size, data.size)
+                            adapterCallback?.currentListChanged()
                         }
                     }
                     is DataSource.FetchResult.Failure -> {
@@ -179,44 +192,53 @@ class MainActivity : AppCompatActivity() {
         }
 
         interface AdapterCallback {
-            fun notifyItemRangeInserted(positionStart: Int, itemCount: Int)
+            fun currentListChanged()
         }
     }
 
-    abstract class PagedListAdapter<T, VH : RecyclerView.ViewHolder> : RecyclerView.Adapter<VH>() {
+    abstract class PagedListAdapter<T, VH : RecyclerView.ViewHolder>(
+        diffUtil: DiffUtil.ItemCallback<T>
+    ) : RecyclerView.Adapter<VH>() {
+        private val differ = AsyncListDiffer<T>(this, diffUtil)
         private lateinit var list: PagedList<T>
 
         private val pagedListCallback = object : PagedList.AdapterCallback {
-            override fun notifyItemRangeInserted(positionStart: Int, itemCount: Int) {
-                this@PagedListAdapter.notifyItemRangeInserted(positionStart, itemCount)
+            override fun currentListChanged() {
+                differ.submitList(list.currentList)
             }
         }
 
-        fun submitList(list: PagedList<T>) {
-            list.adapterCallback = pagedListCallback
-            this.list = list
+        fun submitList(newList: PagedList<T>) {
+            if (::list.isInitialized) list.adapterCallback = null
+            newList.adapterCallback = pagedListCallback
+            list = newList
+            differ.submitList(newList.currentList)
         }
 
-        protected fun getItem(position: Int): T = list.get(position)
+        protected fun getItem(position: Int): T = differ.currentList[position]
 
-        override fun getItemCount(): Int = list.getCount()
+        override fun getItemCount(): Int = differ.currentList.size
     }
 
-    class DataPagedListAdapter : PagedListAdapter<Data, DataViewHolder>() {
 
+    class DataPagedListAdapter : PagedListAdapter<Data, DataViewHolder>(object : DiffUtil.ItemCallback<Data>() {
+        override fun areItemsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem.id == newItem.id
+        override fun areContentsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem == newItem
+    }) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DataViewHolder =
             DataViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-
         override fun onBindViewHolder(holder: DataViewHolder, position: Int) = holder.bind(getItem(position))
-
     }
 
-    class StringPagedListAdapter : PagedListAdapter<String, StringViewHolder>() {
-
+    class StringPagedListAdapter : PagedListAdapter<String, StringViewHolder>(EqualityDiffUtil()) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StringViewHolder =
             StringViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-
         override fun onBindViewHolder(holder: StringViewHolder, position: Int) = holder.bind(getItem(position))
+    }
 
+    class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
+        override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
+        @SuppressLint("DiffUtilEquals")
+        override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
     }
 }
