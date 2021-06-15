@@ -9,16 +9,12 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.AsyncListDiffer
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.*
 import com.andreromano.blazingpaging.core.ErrorKt
 import com.andreromano.blazingpaging.core.ResultKt
 import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.*
 import timber.log.Timber
 
 
@@ -33,12 +29,16 @@ import timber.log.Timber
 class MainActivity : AppCompatActivity() {
 
     private val dataAdapter by lazy {
-        DataPagedListAdapter()
+        DataPagedListAdapter(lifecycleScope)
     }
 
     private val stringAdapter by lazy {
-        StringPagedListAdapter()
+        StringPagedListAdapter(lifecycleScope)
     }
+
+    private val pagedListFlow = MutableStateFlow(PagedList(lifecycleScope, 10, DiffUtilDataSource()))
+
+    private val pagedListFlowState = pagedListFlow.flatMapLatest { it.stateFlow }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,198 +47,305 @@ class MainActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = dataAdapter
 
-        val pagedList = PagedList(lifecycleScope, 10, SomeDataSource()).filter { it.id % 2 == 0 }
-
         sw_switch.isChecked = !Api.shouldFail
         sw_switch.setOnCheckedChangeListener { _, isChecked -> Api.shouldFail = !isChecked }
         btn_retry.setOnClickListener {
-            pagedList.retry()
+            pagedListFlow.value.retry()
+        }
+        fab.setOnClickListener {
+            pagedListFlow.value = PagedList(lifecycleScope, 10, DiffUtilDataSource())//.map { it.copy(name = "${it.name} aljsdaj") }.filter { it.id > 20 }
         }
 
         lifecycleScope.launchWhenCreated {
-            pagedList.stateFlow.collect {
+            pagedListFlow.collect {
+                dataAdapter.submitList(it)
+            }
+        }
+
+        lifecycleScope.launchWhenCreated {
+            pagedListFlowState.collect {
                 tv_title.text = it.name
                 btn_retry.visibility = if (it == PagedList.State.ERROR) View.VISIBLE else View.GONE
             }
         }
-
-
-
-        dataAdapter.submitList(pagedList)
     }
 
-    abstract class DataSource<T> {
-        abstract suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<T>
+}
 
-        fun <R> map(transform: (T) -> R): DataSource<R> = object : DataSource<R>() {
-            override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<R> = this@DataSource.fetchPage(page, pageSize).map(transform)
-        }
 
-        fun filter(predicate: (T) -> Boolean): DataSource<T> = object : DataSource<T>() {
-            override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<T> = this@DataSource.fetchPage(page, pageSize).filter(predicate)
-        }
+abstract class DataSource<T> {
+    abstract suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<T>
 
-        sealed class FetchResult<out T> {
-            data class Success<out T>(val data: List<T>, val hasReachedEnd: Boolean) : FetchResult<T>()
-            data class Failure(val error: ErrorKt) : FetchResult<Nothing>()
-        }
-
-        private fun <T, R> FetchResult<T>.map(transform: (T) -> R): FetchResult<R> = when (this) {
-            is FetchResult.Success -> FetchResult.Success(this.data.map(transform), this.hasReachedEnd)
-            is FetchResult.Failure -> this
-        }
-        private fun <T> FetchResult<T>.filter(predicate: (T) -> Boolean): FetchResult<T> = when (this) {
-            is FetchResult.Success -> FetchResult.Success(this.data.filter(predicate), this.hasReachedEnd)
-            is FetchResult.Failure -> this
-        }
+    sealed class FetchResult<out T> {
+        data class Success<out T>(val data: List<T>, val hasReachedEnd: Boolean) : FetchResult<T>()
+        data class Failure(val error: ErrorKt) : FetchResult<Nothing>()
     }
 
-    class SomeDataSource : DataSource<Data>() {
-        override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<Data> =
-            when (val result = Repository.getData(page, pageSize)) {
-                is ResultKt.Success -> FetchResult.Success(result.data, result.data.size < pageSize)
-                is ResultKt.Failure -> FetchResult.Failure(result.error)
-            }
+
+    fun <R> map(transform: (T) -> R): DataSource<R> = object : DataSource<R>() {
+        override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<R> = this@DataSource.fetchPage(page, pageSize).map(transform)
     }
 
-    class PagedList<T>(
-        private val coroutineScope: CoroutineScope,
-        private val pageSize: Int,
-        private val dataSource: DataSource<T>,
-    ) {
-        internal var adapterCallback: AdapterCallback? = null
-        var state: State = State.IDLE
-            private set(value) {
-                field = value
-                _stateFlow.value = value
-            }
-        private val _stateFlow = MutableStateFlow(state)
-        val stateFlow = _stateFlow
+    fun filter(predicate: (T) -> Boolean): DataSource<T> = object : DataSource<T>() {
+        override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<T> = this@DataSource.fetchPage(page, pageSize).filter(predicate)
+    }
 
-        private val cache: MutableList<T> = mutableListOf()
-        val currentList: List<T> = cache
-        private var currentPage: Int = 0
-        private var hasReachedEnd = false // TODO: Maybe move to the State?
+    private fun <T, R> FetchResult<T>.map(transform: (T) -> R): FetchResult<R> = when (this) {
+        is FetchResult.Success -> FetchResult.Success(this.data.map(transform), this.hasReachedEnd)
+        is FetchResult.Failure -> this
+    }
+    private fun <T> FetchResult<T>.filter(predicate: (T) -> Boolean): FetchResult<T> = when (this) {
+        is FetchResult.Success -> FetchResult.Success(this.data.filter(predicate), this.hasReachedEnd)
+        is FetchResult.Failure -> this
+    }
+}
 
-        fun <R> map(transform: (T) -> R): PagedList<R> =
-            PagedList(
-                coroutineScope,
-                pageSize,
-                dataSource.map(transform),
-            )
-
-        fun filter(predicate: (T) -> Boolean): PagedList<T> =
-            PagedList(
-                coroutineScope,
-                pageSize,
-                dataSource.filter(predicate)
-            )
-
-        fun getCount(): Int {
-            if (currentPage == 0) fetchNextPage()
-            return cache.size
+class SomeDataSource : DataSource<Data>() {
+    override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<Data> =
+        when (val result = Repository.getData(page, pageSize)) {
+            is ResultKt.Success -> FetchResult.Success(result.data, result.data.size < pageSize)
+            is ResultKt.Failure -> FetchResult.Failure(result.error)
         }
+}
 
-        fun get(index: Int): T {
-            Timber.d("SHABAM get($index)")
-            if (getCount() < index + pageSize) fetchNextPage()
-
-            return cache[index]
+class DiffUtilDataSource : DataSource<Data>() {
+    override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<Data> =
+        when (val result = Repository.getDiffUtilData(page, pageSize)) {
+            is ResultKt.Success -> FetchResult.Success(result.data, result.data.size < pageSize)
+            is ResultKt.Failure -> FetchResult.Failure(result.error)
         }
+}
 
-        private lateinit var fetchPageJob: Job
-        private fun fetchNextPage() {
-            Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
+class PagedList<T : Any>(
+    private val coroutineScope: CoroutineScope,
+    private val pageSize: Int,
+    private val dataSource: DataSource<T>,
+) {
+    internal var adapterCallback: AdapterCallback? = null
+    var state: State = State.IDLE
+        private set(value) {
+            field = value
+            _stateFlow.value = value
+        }
+    private val _stateFlow = MutableStateFlow(state)
+    val stateFlow: StateFlow<State> = _stateFlow
 
-            if (::fetchPageJob.isInitialized && fetchPageJob.isActive || hasReachedEnd || state != State.IDLE) return
+    private var backing: List<T> = emptyList()
+    private var currentPage: Int = 0
+    private var hasReachedEnd = false // TODO: Maybe move to the State?
 
-            val page = currentPage + 1
-            fetchPageJob = coroutineScope.launch {
-                state = State.FETCHING
-                Timber.d("SHABAM getData($page)")
-                val result = dataSource.fetchPage(page, pageSize)
+    fun start() {
+        if (currentPage == 0) fetchNextPage()
+    }
 
-                when (result) {
-                    is DataSource.FetchResult.Success -> {
-                        val data = result.data
-                        cache.addAll(data)
-                        currentPage++
-                        // TODO: check if needed
-                        Timber.d("SHABAM getData success result.size: ${data.size}")
-                        Handler(Looper.getMainLooper()).post {
-                            hasReachedEnd = result.hasReachedEnd
-                            state = State.IDLE
-                            adapterCallback?.currentListChanged()
-                        }
+    // This is the current backing list snapshot, do not hold on to this reference as it will change as pages are loaded in
+    fun snapshot(): List<T> = backing.toList()
+
+    fun getCount(): Int {
+        return backing.size
+    }
+
+    // TODO: If all results are filtered or diffed out, this wont get triggered, thus not triggering fetchNextPage()
+    operator fun get(index: Int): T {
+        Timber.d("SHABAM get($index)")
+        if (getCount() < index + pageSize) fetchNextPage()
+
+        return backing[index]
+    }
+
+    private lateinit var fetchPageJob: Job
+    private fun fetchNextPage() {
+        Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
+
+        if (::fetchPageJob.isInitialized && fetchPageJob.isActive || hasReachedEnd || state != State.IDLE) return
+
+        val page = currentPage + 1
+        fetchPageJob = coroutineScope.launch {
+            state = State.FETCHING
+            Timber.d("SHABAM getData($page)")
+            val result = dataSource.fetchPage(page, pageSize)
+
+            when (result) {
+                is DataSource.FetchResult.Success -> {
+                    val data = result.data
+                    backing = backing + data
+                    currentPage++
+                    // TODO: check if needed
+                    Timber.d("SHABAM getData success result.size: ${data.size}")
+                    Handler(Looper.getMainLooper()).post {
+                        hasReachedEnd = result.hasReachedEnd
+                        state = State.IDLE
+                        adapterCallback?.currentListChanged()
                     }
-                    is DataSource.FetchResult.Failure -> {
-                        state = State.ERROR
-                        Timber.d("SHABAM getData failure error: ${result.error}")
-                    }
+                }
+                is DataSource.FetchResult.Failure -> {
+                    state = State.ERROR
+                    Timber.d("SHABAM getData failure error: ${result.error}")
+                }
+            }
+        }
+    }
+
+    fun retry() {
+        require(state == State.ERROR)
+        state = State.IDLE
+        fetchNextPage()
+    }
+
+    enum class State {
+        IDLE,
+        FETCHING,
+        ERROR
+    }
+
+    interface AdapterCallback {
+        fun currentListChanged()
+    }
+
+    fun <R : Any> map(transform: (T) -> R): PagedList<R> =
+        PagedList(
+            coroutineScope,
+            pageSize,
+            dataSource.map(transform),
+        )
+
+    fun filter(predicate: (T) -> Boolean): PagedList<T> =
+        PagedList(
+            coroutineScope,
+            pageSize,
+            dataSource.filter(predicate)
+        )
+}
+
+class AsyncPagedListDiffer<T : Any>(
+    private val adapter: RecyclerView.Adapter<*>,
+    private val diffCallback: DiffUtil.ItemCallback<T>,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val diffingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+) {
+
+    private val listUpdateCallback = DebugListUpdateCallback(adapter)
+
+    var currentList: PagedList<T>? = null
+        private set
+
+    var currentSnapshot: List<T>? = null
+        private set
+
+    private lateinit var diffingJob: Job
+    // TODO: This is called when a new PagedList is submitted and when a new page is attached, maybe we should have different methods
+    suspend fun submitList(newList: PagedList<T>?) {
+        if (::diffingJob.isInitialized && diffingJob.isActive) diffingJob.cancel()
+
+        val oldSnapshot = currentSnapshot
+        val newSnapshot = newList?.snapshot()
+
+        if (oldSnapshot == null && newSnapshot == null) return
+        if (oldSnapshot == null && newSnapshot != null) {
+            listUpdateCallback.onInserted(0, newSnapshot.size)
+            currentSnapshot = newSnapshot
+            currentList = newList
+            return
+        }
+        if (oldSnapshot != null && newSnapshot == null) {
+            listUpdateCallback.onRemoved(0, oldSnapshot.size)
+            currentSnapshot = null
+            currentList = null
+            return
+        }
+        require(oldSnapshot != null)
+        require(newSnapshot != null)
+
+        diffingJob = coroutineScope {
+            launch(diffingDispatcher) {
+                val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                    override fun getOldListSize(): Int = oldSnapshot.size
+
+                    override fun getNewListSize(): Int = newSnapshot.size
+
+                    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean = diffCallback.areItemsTheSame(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+
+                    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean = diffCallback.areContentsTheSame(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+
+                    override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? = diffCallback.getChangePayload(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+                })
+
+                mainDispatcher.dispatch(coroutineContext) {
+                    currentSnapshot = newSnapshot
+                    currentList = newList
+                    diffResult.dispatchUpdatesTo(listUpdateCallback)
                 }
             }
         }
 
-        fun retry() {
-            require(state == State.ERROR)
-            state = State.IDLE
-            fetchNextPage()
-        }
-
-        enum class State {
-            IDLE,
-            FETCHING,
-            ERROR
-        }
-
-        interface AdapterCallback {
-            fun currentListChanged()
-        }
     }
 
-    abstract class PagedListAdapter<T, VH : RecyclerView.ViewHolder>(
-        diffUtil: DiffUtil.ItemCallback<T>
-    ) : RecyclerView.Adapter<VH>() {
-        private val differ = AsyncListDiffer<T>(this, diffUtil)
-        private lateinit var list: PagedList<T>
+}
 
-        private val pagedListCallback = object : PagedList.AdapterCallback {
-            override fun currentListChanged() {
-                differ.submitList(list.currentList)
+class DebugListUpdateCallback(private val adapter: RecyclerView.Adapter<*>) : ListUpdateCallback {
+    override fun onInserted(position: Int, count: Int) {
+        Timber.e("SHABAM DiffUtil onInserted(position: $position, count: $count)")
+        adapter.notifyItemRangeInserted(position, count)
+    }
+    override fun onRemoved(position: Int, count: Int) {
+        Timber.e("SHABAM DiffUtil onRemoved(position: $position, count: $count)")
+        adapter.notifyItemRangeRemoved(position, count)
+    }
+    override fun onMoved(fromPosition: Int, toPosition: Int) {
+        Timber.e("SHABAM DiffUtil onMoved(fromPosition: $fromPosition, toPosition: $toPosition)")
+        adapter.notifyItemMoved(fromPosition, toPosition)
+    }
+    override fun onChanged(position: Int, count: Int, payload: Any?) {
+        adapter.notifyItemRangeChanged(position, count, payload)
+    }
+}
+
+abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
+    private val coroutineScope: CoroutineScope,
+    diffUtil: DiffUtil.ItemCallback<T>,
+) : RecyclerView.Adapter<VH>() {
+    private val differ = AsyncPagedListDiffer<T>(this, diffUtil)
+    private var list: PagedList<T>? = null
+
+    private val pagedListCallback = object : PagedList.AdapterCallback {
+        override fun currentListChanged() {
+            coroutineScope.launch {
+                differ.submitList(list)
             }
         }
-
-        fun submitList(newList: PagedList<T>) {
-            if (::list.isInitialized) list.adapterCallback = null
-            newList.adapterCallback = pagedListCallback
-            list = newList
-            differ.submitList(newList.currentList)
-        }
-
-        protected fun getItem(position: Int): T = differ.currentList[position]
-
-        override fun getItemCount(): Int = differ.currentList.size
     }
 
-
-    class DataPagedListAdapter : PagedListAdapter<Data, DataViewHolder>(object : DiffUtil.ItemCallback<Data>() {
-        override fun areItemsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem.id == newItem.id
-        override fun areContentsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem == newItem
-    }) {
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DataViewHolder =
-            DataViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-        override fun onBindViewHolder(holder: DataViewHolder, position: Int) = holder.bind(getItem(position))
+    suspend fun submitList(newList: PagedList<T>?) {
+        list?.adapterCallback = null
+        newList?.adapterCallback = pagedListCallback
+        list = newList
+        differ.submitList(newList)
+        list?.start()
     }
 
-    class StringPagedListAdapter : PagedListAdapter<String, StringViewHolder>(EqualityDiffUtil()) {
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StringViewHolder =
-            StringViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-        override fun onBindViewHolder(holder: StringViewHolder, position: Int) = holder.bind(getItem(position))
-    }
+    protected fun getItem(position: Int): T = differ.currentList?.get(position)!!
 
-    class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
-        override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
-        @SuppressLint("DiffUtilEquals")
-        override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
-    }
+    override fun getItemCount(): Int = differ.currentList?.getCount() ?: 0
+}
+
+
+class DataPagedListAdapter(coroutineScope: CoroutineScope) : PagedListAdapter<Data, DataViewHolder>(coroutineScope, object : DiffUtil.ItemCallback<Data>() {
+    override fun areItemsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem.id == newItem.id
+    override fun areContentsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem == newItem
+}) {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DataViewHolder =
+        DataViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
+    override fun onBindViewHolder(holder: DataViewHolder, position: Int) = holder.bind(getItem(position))
+}
+
+class StringPagedListAdapter(coroutineScope: CoroutineScope) : PagedListAdapter<String, StringViewHolder>(coroutineScope, EqualityDiffUtil()) {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StringViewHolder =
+        StringViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
+    override fun onBindViewHolder(holder: StringViewHolder, position: Int) = holder.bind(getItem(position))
+}
+
+class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
+    override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
+    @SuppressLint("DiffUtilEquals")
+    override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
 }

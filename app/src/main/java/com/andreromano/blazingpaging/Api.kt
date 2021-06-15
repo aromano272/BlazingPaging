@@ -1,6 +1,7 @@
 package com.andreromano.blazingpaging
 
 import com.andreromano.blazingpaging.core.ErrorKt
+import com.andreromano.blazingpaging.core.Millis
 import com.andreromano.blazingpaging.core.ResultKt
 import kotlinx.coroutines.delay
 
@@ -39,15 +40,18 @@ object Api {
 
 
 
-    private suspend fun <T> paged(page: Int, pageSize: Int, dataSet: List<T>): ResultKt<List<T>> = middleware {
+    private suspend fun <T> paged(page: Int, pageSize: Int, dataSet: List<T>, delay: Millis = 4000): ResultKt<List<T>> = middleware(delay = delay) {
         dataSet.subList(
             (page - 1) * pageSize,
             (page * pageSize).coerceAtMost(dataSet.size)
         )
     }
 
-    private suspend fun <T> middleware(shouldFail: Boolean = this.shouldFail, call: suspend () -> T): ResultKt<T> = when (shouldFail) {
-        true -> ResultKt.Success(call())
-        false -> ResultKt.Failure(ErrorKt.Network)
+    private suspend fun <T> middleware(shouldFail: Boolean = this.shouldFail, delay: Millis = 2000, call: suspend () -> T): ResultKt<T> {
+        delay(delay)
+        return when (shouldFail) {
+            false -> ResultKt.Success(call())
+            true -> ResultKt.Failure(ErrorKt.Network)
+        }
     }
 }
