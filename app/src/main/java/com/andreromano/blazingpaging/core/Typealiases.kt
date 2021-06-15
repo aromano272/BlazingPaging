@@ -1,13 +1,5 @@
 package com.andreromano.blazingpaging.core
 
-typealias RestaurantId = Long
-typealias FirebaseUserId = String
-
-typealias ItemId = Long
-typealias ItemCategoryId = Long
-typealias OrderId = Long
-
-typealias Price = Double
 
 typealias Minutes = Int
 typealias Seconds = Long

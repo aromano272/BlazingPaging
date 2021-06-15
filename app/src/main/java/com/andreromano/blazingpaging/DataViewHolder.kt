@@ -10,9 +10,3 @@ class DataViewHolder(override val containerView: View) : RecyclerView.ViewHolder
         tv_data.text = item.name
     }
 }
-
-class StringViewHolder(override val containerView: View) : RecyclerView.ViewHolder(containerView), LayoutContainer {
-    fun bind(item: String) = with(containerView) {
-        tv_data.text = item
-    }
-}

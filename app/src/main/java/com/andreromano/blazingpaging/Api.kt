@@ -10,9 +10,11 @@ object Api {
     var shouldFail: Boolean = false
 
     private object ApiData {
-        val NORMAL = (0 until 45).map(::transform)
+        val NORMAL = (0 until 95).map(::transform)
         val DIFF_UTIL = (
-                (0 until 7) +
+                (0 until 10) +
+                // new item was inserted at top of list, with id -1, so now page 0 would return (-1 until 9) and page 2 (9 until 19),
+                // but we already have (0 until 10), getting page 2 (9 until 19) would leave us with two 9s which should be diffed ou
                 listOf(1, 2) +
                 (9 until 20) +
                 listOf(5, 7, 20, 20, 20) +
@@ -40,7 +42,7 @@ object Api {
 
 
 
-    private suspend fun <T> paged(page: Int, pageSize: Int, dataSet: List<T>, delay: Millis = 4000): ResultKt<List<T>> = middleware(delay = delay) {
+    private suspend fun <T> paged(page: Int, pageSize: Int, dataSet: List<T>, delay: Millis = 2000): ResultKt<List<T>> = middleware(delay = delay) {
         dataSet.subList(
             (page - 1) * pageSize,
             (page * pageSize).coerceAtMost(dataSet.size)

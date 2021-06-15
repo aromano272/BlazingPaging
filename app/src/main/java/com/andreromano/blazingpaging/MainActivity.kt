@@ -1,12 +1,9 @@
 package com.andreromano.blazingpaging
 
-import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.*
@@ -32,10 +29,6 @@ class MainActivity : AppCompatActivity() {
         DataPagedListAdapter(lifecycleScope)
     }
 
-    private val stringAdapter by lazy {
-        StringPagedListAdapter(lifecycleScope)
-    }
-
     private val pagedListFlow = MutableStateFlow(PagedList(lifecycleScope, 10, DiffUtilDataSource()))
 
     private val pagedListFlowState = pagedListFlow.flatMapLatest { it.stateFlow }
@@ -53,7 +46,7 @@ class MainActivity : AppCompatActivity() {
             pagedListFlow.value.retry()
         }
         fab.setOnClickListener {
-            pagedListFlow.value = PagedList(lifecycleScope, 10, DiffUtilDataSource())//.map { it.copy(name = "${it.name} aljsdaj") }.filter { it.id > 20 }
+            pagedListFlow.value = PagedList(lifecycleScope, 10, SomeDataSource())//.map { it.copy(name = "${it.name} aljsdaj") }.filter { it.id > 20 }
         }
 
         lifecycleScope.launchWhenCreated {
@@ -121,7 +114,7 @@ class PagedList<T : Any>(
     private val pageSize: Int,
     private val dataSource: DataSource<T>,
 ) {
-    internal var adapterCallback: AdapterCallback? = null
+    internal var adapterCallback: AdapterCallback<T>? = null
     var state: State = State.IDLE
         private set(value) {
             field = value
@@ -175,7 +168,7 @@ class PagedList<T : Any>(
                     Handler(Looper.getMainLooper()).post {
                         hasReachedEnd = result.hasReachedEnd
                         state = State.IDLE
-                        adapterCallback?.currentListChanged()
+                        adapterCallback?.pageFetched(data)
                     }
                 }
                 is DataSource.FetchResult.Failure -> {
@@ -198,9 +191,12 @@ class PagedList<T : Any>(
         ERROR
     }
 
-    interface AdapterCallback {
-        fun currentListChanged()
+    interface AdapterCallback<T : Any> {
+        fun pageFetched(page: List<T>)
     }
+
+    // Seeing that DiffUtil doesnt actually prevent repeated items emitted from the DataSource from being shown:
+    // TODO: Implement distinctBy {}
 
     fun <R : Any> map(transform: (T) -> R): PagedList<R> =
         PagedList(
@@ -231,6 +227,12 @@ class AsyncPagedListDiffer<T : Any>(
 
     var currentSnapshot: List<T>? = null
         private set
+
+    fun pageFetched(page: List<T>) {
+        val oldSnapshot = currentSnapshot.orEmpty()
+        currentSnapshot = oldSnapshot + page
+        listUpdateCallback.onInserted(oldSnapshot.size, page.size)
+    }
 
     private lateinit var diffingJob: Job
     // TODO: This is called when a new PagedList is submitted and when a new page is attached, maybe we should have different methods
@@ -282,24 +284,6 @@ class AsyncPagedListDiffer<T : Any>(
 
 }
 
-class DebugListUpdateCallback(private val adapter: RecyclerView.Adapter<*>) : ListUpdateCallback {
-    override fun onInserted(position: Int, count: Int) {
-        Timber.e("SHABAM DiffUtil onInserted(position: $position, count: $count)")
-        adapter.notifyItemRangeInserted(position, count)
-    }
-    override fun onRemoved(position: Int, count: Int) {
-        Timber.e("SHABAM DiffUtil onRemoved(position: $position, count: $count)")
-        adapter.notifyItemRangeRemoved(position, count)
-    }
-    override fun onMoved(fromPosition: Int, toPosition: Int) {
-        Timber.e("SHABAM DiffUtil onMoved(fromPosition: $fromPosition, toPosition: $toPosition)")
-        adapter.notifyItemMoved(fromPosition, toPosition)
-    }
-    override fun onChanged(position: Int, count: Int, payload: Any?) {
-        adapter.notifyItemRangeChanged(position, count, payload)
-    }
-}
-
 abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     private val coroutineScope: CoroutineScope,
     diffUtil: DiffUtil.ItemCallback<T>,
@@ -307,9 +291,10 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     private val differ = AsyncPagedListDiffer<T>(this, diffUtil)
     private var list: PagedList<T>? = null
 
-    private val pagedListCallback = object : PagedList.AdapterCallback {
-        override fun currentListChanged() {
+    private val pagedListCallback = object : PagedList.AdapterCallback<T> {
+        override fun pageFetched(page: List<T>) {
             coroutineScope.launch {
+//                differ.pageFetched(page)
                 differ.submitList(list)
             }
         }
@@ -328,24 +313,21 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     override fun getItemCount(): Int = differ.currentList?.getCount() ?: 0
 }
 
-
-class DataPagedListAdapter(coroutineScope: CoroutineScope) : PagedListAdapter<Data, DataViewHolder>(coroutineScope, object : DiffUtil.ItemCallback<Data>() {
-    override fun areItemsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem.id == newItem.id
-    override fun areContentsTheSame(oldItem: Data, newItem: Data): Boolean = oldItem == newItem
-}) {
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DataViewHolder =
-        DataViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-    override fun onBindViewHolder(holder: DataViewHolder, position: Int) = holder.bind(getItem(position))
-}
-
-class StringPagedListAdapter(coroutineScope: CoroutineScope) : PagedListAdapter<String, StringViewHolder>(coroutineScope, EqualityDiffUtil()) {
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StringViewHolder =
-        StringViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false))
-    override fun onBindViewHolder(holder: StringViewHolder, position: Int) = holder.bind(getItem(position))
-}
-
-class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
-    override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
-    @SuppressLint("DiffUtilEquals")
-    override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
+class DebugListUpdateCallback(private val adapter: RecyclerView.Adapter<*>) : ListUpdateCallback {
+    override fun onInserted(position: Int, count: Int) {
+        Timber.e("SHABAM DiffUtil onInserted(position: $position, count: $count)")
+        adapter.notifyItemRangeInserted(position, count)
+    }
+    override fun onRemoved(position: Int, count: Int) {
+        Timber.e("SHABAM DiffUtil onRemoved(position: $position, count: $count)")
+        adapter.notifyItemRangeRemoved(position, count)
+    }
+    override fun onMoved(fromPosition: Int, toPosition: Int) {
+        Timber.e("SHABAM DiffUtil onMoved(fromPosition: $fromPosition, toPosition: $toPosition)")
+        adapter.notifyItemMoved(fromPosition, toPosition)
+    }
+    override fun onChanged(position: Int, count: Int, payload: Any?) {
+        Timber.e("SHABAM DiffUtil onChanged(position: $position, count: $count, payload: $payload)")
+        adapter.notifyItemRangeChanged(position, count, payload)
+    }
 }
