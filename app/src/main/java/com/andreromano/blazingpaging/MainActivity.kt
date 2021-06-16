@@ -16,11 +16,11 @@ import timber.log.Timber
 
 
 /** TODO:
- *      DiffUtil
- *      AsyncDiffUtil
+ *      Fix bug where if all results are filtered or diffed out, PagedList.get() won't get called, thus not triggering fetchNextPage()
  *      Headers/Footers
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
+ *      AsyncDiffUtil for submitList(pagedList)
  *
  */
 class MainActivity : AppCompatActivity() {
