@@ -1,8 +1,10 @@
-package com.andreromano.blazingpaging
+package com.andreromano.blazingpaging.other
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
+import com.andreromano.blazingpaging.PagedListAdapter
+import com.andreromano.blazingpaging.R
 import kotlinx.coroutines.CoroutineScope
 
 class DataPagedListAdapter(coroutineScope: CoroutineScope) : PagedListAdapter<Data, DataViewHolder>(coroutineScope, object : DiffUtil.ItemCallback<Data>() {

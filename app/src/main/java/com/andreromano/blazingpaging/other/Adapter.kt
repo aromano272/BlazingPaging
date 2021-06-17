@@ -1,9 +1,10 @@
-package com.andreromano.blazingpaging
+package com.andreromano.blazingpaging.other
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
+import com.andreromano.blazingpaging.R
 
 class Adapter : ListAdapter<Data, DataViewHolder>(
     object : DiffUtil.ItemCallback<Data>() {

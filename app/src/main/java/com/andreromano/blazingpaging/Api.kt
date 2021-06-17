@@ -3,6 +3,7 @@ package com.andreromano.blazingpaging
 import com.andreromano.blazingpaging.core.ErrorKt
 import com.andreromano.blazingpaging.core.Millis
 import com.andreromano.blazingpaging.core.ResultKt
+import com.andreromano.blazingpaging.other.Data
 import kotlinx.coroutines.delay
 
 object Api {
@@ -10,7 +11,7 @@ object Api {
     var shouldFail: Boolean = false
 
     private object ApiData {
-        val NORMAL = (0 until 95).map(::transform)
+        val NORMAL = (0 until 95).map(ApiData::transform)
         val DIFF_UTIL = (
                 (0 until 10) +
                 // new item was inserted at top of list, with id -1, so now page 0 would return (-1 until 9) and page 2 (9 until 19),
@@ -23,14 +24,14 @@ object Api {
                 (30 until 50) +
                 (5 until 10) +
                 (50 until 60)
-            ).map(::transform)
+            ).map(ApiData::transform)
 
         fun transform(it: Int): Data = Data(it, "data $it")
     }
 
 
 
-    suspend fun getData(
+    suspend fun getSequentialData(
         page: Int,
         pageSize: Int,
     ): ResultKt<List<Data>> = paged(page, pageSize, ApiData.NORMAL)
@@ -49,7 +50,7 @@ object Api {
         )
     }
 
-    private suspend fun <T> middleware(shouldFail: Boolean = this.shouldFail, delay: Millis = 2000, call: suspend () -> T): ResultKt<T> {
+    private suspend fun <T> middleware(shouldFail: Boolean = Api.shouldFail, delay: Millis = 2000, call: suspend () -> T): ResultKt<T> {
         delay(delay)
         return when (shouldFail) {
             false -> ResultKt.Success(call())

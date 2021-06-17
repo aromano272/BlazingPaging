@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging
+package com.andreromano.blazingpaging.other
 
 data class Data(
     val id: Int,

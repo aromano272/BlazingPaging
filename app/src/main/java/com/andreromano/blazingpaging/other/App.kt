@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging
+package com.andreromano.blazingpaging.other
 
 import android.app.Application
 import timber.log.Timber

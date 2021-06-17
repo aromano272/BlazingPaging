@@ -8,15 +8,20 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.*
 import com.andreromano.blazingpaging.core.ErrorKt
-import com.andreromano.blazingpaging.core.ResultKt
+import com.andreromano.blazingpaging.extensions.ActionFlow
+import com.andreromano.blazingpaging.extensions.value
+import com.andreromano.blazingpaging.other.*
 import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import timber.log.Timber
 
 
 /** TODO:
  *      Fix bug where if all results are filtered or diffed out, PagedList.get() won't get called, thus not triggering fetchNextPage()
+ *      Implement PagedList.map
+ *      Prefetch distance
  *      Headers/Footers
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
@@ -29,7 +34,7 @@ class MainActivity : AppCompatActivity() {
         DataPagedListAdapter(lifecycleScope)
     }
 
-    private val pagedListFlow = MutableStateFlow(PagedList(lifecycleScope, 10, DiffUtilDataSource()))
+    private val pagedListFlow = ActionFlow<PagedList<Data>>()
 
     private val pagedListFlowState = pagedListFlow.flatMapLatest { it.stateFlow }
 
@@ -46,7 +51,7 @@ class MainActivity : AppCompatActivity() {
             pagedListFlow.value.retry()
         }
         fab.setOnClickListener {
-            pagedListFlow.value = PagedList(lifecycleScope, 10, SomeDataSource())//.map { it.copy(name = "${it.name} aljsdaj") }.filter { it.id > 20 }
+            pagedListFlow.value = PagedList(lifecycleScope, 10, CustomDataSource(Repository::getDiffUtilData))//.map { it.copy(name = "${it.name} aljsdaj") }.filter { it.id > 20 }
         }
 
         lifecycleScope.launchWhenCreated {
@@ -61,6 +66,13 @@ class MainActivity : AppCompatActivity() {
                 btn_retry.visibility = if (it == PagedList.State.ERROR) View.VISIBLE else View.GONE
             }
         }
+
+        setupBug_1()
+    }
+
+    // if all results are filtered or diffed out, PagedList.get() won't get called, thus not triggering fetchNextPage()
+    private fun setupBug_1() {
+        pagedListFlow.value = PagedList(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData)).filter { it.id > 20 }
     }
 
 }
@@ -93,27 +105,14 @@ abstract class DataSource<T> {
     }
 }
 
-class SomeDataSource : DataSource<Data>() {
-    override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<Data> =
-        when (val result = Repository.getData(page, pageSize)) {
-            is ResultKt.Success -> FetchResult.Success(result.data, result.data.size < pageSize)
-            is ResultKt.Failure -> FetchResult.Failure(result.error)
-        }
-}
-
-class DiffUtilDataSource : DataSource<Data>() {
-    override suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<Data> =
-        when (val result = Repository.getDiffUtilData(page, pageSize)) {
-            is ResultKt.Success -> FetchResult.Success(result.data, result.data.size < pageSize)
-            is ResultKt.Failure -> FetchResult.Failure(result.error)
-        }
-}
-
 class PagedList<T : Any>(
     private val coroutineScope: CoroutineScope,
     private val pageSize: Int,
     private val dataSource: DataSource<T>,
 ) {
+
+    private var filterFunc: ((T) -> Boolean)? = null
+
     internal var adapterCallback: AdapterCallback<T>? = null
     var state: State = State.IDLE
         private set(value) {
@@ -128,7 +127,7 @@ class PagedList<T : Any>(
     private var hasReachedEnd = false // TODO: Maybe move to the State?
 
     fun start() {
-        if (currentPage == 0) fetchNextPage()
+        if (currentPage == 0) tryFetchNextPage()
     }
 
     // This is the current backing list snapshot, do not hold on to this reference as it will change as pages are loaded in
@@ -141,48 +140,108 @@ class PagedList<T : Any>(
     // TODO: If all results are filtered or diffed out, this wont get triggered, thus not triggering fetchNextPage()
     operator fun get(index: Int): T {
         Timber.d("SHABAM get($index)")
-        if (getCount() < index + pageSize) fetchNextPage()
+        if (getCount() < index + pageSize) tryFetchNextPage()
 
         return backing[index]
     }
 
-    private lateinit var fetchPageJob: Job
-    private fun fetchNextPage() {
+    private val fetchPageAction = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val fetchPageResult =
+        fetchPageAction
+            .onEach(::fetchNextPage)
+            .launchIn(coroutineScope)
+
+    private suspend fun fetchNextPage(unit: Unit) {
         Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
 
-        if (::fetchPageJob.isInitialized && fetchPageJob.isActive || hasReachedEnd || state != State.IDLE) return
-
         val page = currentPage + 1
-        fetchPageJob = coroutineScope.launch {
-            state = State.FETCHING
-            Timber.d("SHABAM getData($page)")
-            val result = dataSource.fetchPage(page, pageSize)
+        state = State.FETCHING
+        Timber.d("SHABAM getData($page)")
 
-            when (result) {
-                is DataSource.FetchResult.Success -> {
-                    val data = result.data
-                    backing = backing + data
-                    currentPage++
-                    // TODO: check if needed
-                    Timber.d("SHABAM getData success result.size: ${data.size}")
-                    Handler(Looper.getMainLooper()).post {
-                        hasReachedEnd = result.hasReachedEnd
-                        state = State.IDLE
-                        adapterCallback?.pageFetched(data)
-                    }
+        when (val result = dataSource.fetchPage(page, pageSize)) {
+            is DataSource.FetchResult.Success -> {
+                val filterFunc = filterFunc
+                val originalData = result.data
+                val data = if (filterFunc == null) originalData else originalData.filter(filterFunc)
+
+                backing = backing + data
+                currentPage++
+                hasReachedEnd = result.hasReachedEnd
+                state = State.IDLE
+
+                Timber.d("SHABAM getData success result.size: ${data.size}")
+                // If the results are filtered out we should get new page right away
+                if (!hasReachedEnd && data.isEmpty()) {
+                    tryFetchNextPageFlow()
+                    return
                 }
-                is DataSource.FetchResult.Failure -> {
-                    state = State.ERROR
-                    Timber.d("SHABAM getData failure error: ${result.error}")
+                // TODO: check if needed
+                Handler(Looper.getMainLooper()).post {
+                    adapterCallback?.pageFetched(data)
                 }
             }
+            is DataSource.FetchResult.Failure -> {
+                state = State.ERROR
+                Timber.d("SHABAM getData failure error: ${result.error}")
+            }
         }
+    }
+
+    private lateinit var tryFetchNextPageJob: Job
+    private fun tryFetchNextPage() {
+        if (::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive || hasReachedEnd || state != State.IDLE) return
+
+        coroutineScope.launch {
+            fetchNextPage()
+        }
+    }
+
+    private fun tryFetchNextPageFlow() {
+        if (hasReachedEnd || state != State.IDLE) return
+        fetchPageAction.tryEmit(Unit).also { Timber.e("SHABAM fetchNextPage tryEmit failed") }
+    }
+
+    private suspend fun fetchNextPage() {
+        Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
+
+        val page = currentPage + 1
+        state = State.FETCHING
+        Timber.d("SHABAM getData($page)")
+
+        when (val result = dataSource.fetchPage(page, pageSize)) {
+            is DataSource.FetchResult.Success -> {
+                val filterFunc = filterFunc
+                val originalData = result.data
+                val data = if (filterFunc == null) originalData else originalData.filter(filterFunc)
+
+                backing = backing + data
+                currentPage++
+                hasReachedEnd = result.hasReachedEnd
+                state = State.IDLE
+
+                Timber.d("SHABAM getData success result.size: ${data.size}")
+                // If the results are filtered out we should get new page right away
+                if (!hasReachedEnd && data.isEmpty()) {
+                    fetchNextPage()
+                    return
+                }
+                // TODO: check if needed
+                Handler(Looper.getMainLooper()).post {
+                    adapterCallback?.pageFetched(data)
+                }
+            }
+            is DataSource.FetchResult.Failure -> {
+                state = State.ERROR
+                Timber.d("SHABAM getData failure error: ${result.error}")
+            }
+        }
+
     }
 
     fun retry() {
         require(state == State.ERROR)
         state = State.IDLE
-        fetchNextPage()
+        tryFetchNextPage()
     }
 
     enum class State {
@@ -198,19 +257,29 @@ class PagedList<T : Any>(
     // Seeing that DiffUtil doesnt actually prevent repeated items emitted from the DataSource from being shown:
     // TODO: Implement distinctBy {}
 
-    fun <R : Any> map(transform: (T) -> R): PagedList<R> =
-        PagedList(
-            coroutineScope,
-            pageSize,
-            dataSource.map(transform),
-        )
+//    fun <R : Any> map(transform: (T) -> R): PagedList<R> =
+//        PagedList(
+//            coroutineScope,
+//            pageSize,
+//            dataSource.map(transform),
+//        )
+//
+//    fun filter(predicate: (T) -> Boolean): PagedList<T> =
+//        PagedList(
+//            coroutineScope,
+//            pageSize,
+//            dataSource.filter(predicate)
+//        )
 
     fun filter(predicate: (T) -> Boolean): PagedList<T> =
         PagedList(
             coroutineScope,
             pageSize,
-            dataSource.filter(predicate)
-        )
+            dataSource,
+        ).apply {
+            filterFunc = predicate
+        }
+
 }
 
 class AsyncPagedListDiffer<T : Any>(
@@ -262,13 +331,9 @@ class AsyncPagedListDiffer<T : Any>(
             launch(diffingDispatcher) {
                 val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                     override fun getOldListSize(): Int = oldSnapshot.size
-
                     override fun getNewListSize(): Int = newSnapshot.size
-
                     override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean = diffCallback.areItemsTheSame(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
-
                     override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean = diffCallback.areContentsTheSame(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
-
                     override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? = diffCallback.getChangePayload(oldSnapshot[oldItemPosition], newSnapshot[newItemPosition])
                 })
 
@@ -305,6 +370,7 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
         newList?.adapterCallback = pagedListCallback
         list = newList
         differ.submitList(newList)
+        // TODO: This should only start if or after being attached to a recyclerview, this .start() is a hack
         list?.start()
     }
 
