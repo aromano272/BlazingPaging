@@ -16,7 +16,6 @@ import timber.log.Timber
 
 
 /** TODO:
- *      Prefetch distance
  *      Headers/Footers
  *      Allow to submit new pagedlist
  *      Add State.DIFFING? Because diffing may take a while
@@ -49,7 +48,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
         }
         btn_new_pagedlist.setOnClickListener {
-            val thingamabob = Thingamabob<Data>(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData))
+            val thingamabob = Thingamabob<Data>(lifecycleScope, Thingamabob.Config(10), CustomDataSource(Repository::getSequentialData))
             pagedListFlow.tryEmit(thingamabob.buildPagedList())
         }
         fab.setOnClickListener {
@@ -73,7 +72,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     }
 
     private fun setupBug_1_solution() {
-        pagedListFlow.value = Thingamabob<Data>(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData)).buildPagedList().filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
+        pagedListFlow.value = Thingamabob<Data>(lifecycleScope, Thingamabob.Config(10), CustomDataSource(Repository::getSequentialData)).buildPagedList().filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
     }
 }
 
@@ -87,16 +86,15 @@ abstract class DataSource<T : Any> {
     }
 }
 
-data class PagedList<T : Any>(
+data class PagedList<T : Any> internal constructor(
     internal val coroutineScope: CoroutineScope,
     val pages: Flow<Page<T>>,
     val state: Flow<Thingamabob.State>,
     val fetchNextPage: () -> Unit,
     val retry: () -> Unit,
     internal val pageSize: Int,
+    val prefetchDistance: Int
 ) : AbstractList<T>() {
-
-    val threshold = pageSize * 2
 
     override val size: Int
         get() = throw UnsupportedOperationException()
@@ -113,22 +111,29 @@ data class PagedList<T : Any>(
 
 }
 
-fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> = PagedList<R>(coroutineScope,  pages.map { it.map(transform) }, state, fetchNextPage, retry, pageSize)
+fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> = PagedList<R>(coroutineScope,  pages.map { it.map(transform) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
 
-fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> = PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize)
+fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> = PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
 
 fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(id, items.map(transform))
 
 fun <T : Any> Page<T>.filter(predicate: (T) -> Boolean): Page<T> = Page<T>(id, items.filter(predicate))
 
 
-
+/**
+ * @param prefetchDistance Is the minimum amount of items available in front of the current position before fetching a new page, defaults to pageSize * 2
+ */
 // TODO: Name it
 data class Thingamabob<T : Any>(
     private val coroutineScope: CoroutineScope,
-    private val pageSize: Int,
+    private val config: Config,
     private val dataSource: DataSource<T>,
 ) {
+    data class Config(
+        val pageSize: Int,
+        val prefetchDistance: Int = pageSize * 2
+    )
+
     // This is starting to shape up like the PageEvent's the new paging library uses, we need this to signal the PagedList that a new page was fetched
     // the pagedlist will in turn filter the results if it needs to and it will determine if it should get another page or not,
     // this way all of this logic goes smoothly to the pagedlist side while still separating the logic between these classes
@@ -144,7 +149,8 @@ data class Thingamabob<T : Any>(
         state,
         ::tryFetchNextPage,
         ::retry,
-        pageSize
+        config.pageSize,
+        config.prefetchDistance,
     )
 
     private lateinit var tryFetchNextPageJob: Job
@@ -166,7 +172,7 @@ data class Thingamabob<T : Any>(
         state.value = State.FETCHING
         Timber.d("SHABAM getData($page)")
 
-        when (val result = dataSource.fetchPage(page, pageSize)) {
+        when (val result = dataSource.fetchPage(page, config.pageSize)) {
             is DataSource.FetchResult.Success -> {
                 val data = result.data
 
@@ -302,7 +308,7 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
                 Timber.i("SHABAM Adapter diffingJob.onEach newPage: $newPage currentList: $currentList")
                 val oldList = currentList
                 currentList = currentList + newPage.items
-                if (currentList.size - currentPosition < pagedList.threshold) pagedList.fetchNextPage()
+                if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
                 notifyItemRangeInserted(oldList.size, newPage.items.size)
             }
             .launchIn(coroutineScope)
@@ -314,7 +320,7 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     protected fun getItem(position: Int): T {
         currentPosition = position
         pagedList?.let { pagedList ->
-            if (currentList.size - currentPosition < pagedList.threshold) pagedList.fetchNextPage()
+            if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
         }
         val item = currentList[position]
         Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
