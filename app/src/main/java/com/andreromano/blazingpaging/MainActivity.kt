@@ -1,8 +1,6 @@
 package com.andreromano.blazingpaging
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -20,12 +18,13 @@ import timber.log.Timber
 /** TODO:
  *      Prefetch distance
  *      Headers/Footers
+ *      Allow to submit new pagedlist
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
  *      AsyncDiffUtil for submitList(pagedList)
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
     private val dataAdapter by lazy {
         DataPagedListAdapter(lifecycleScope)
@@ -37,16 +36,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = dataAdapter
 
-        sw_switch.isChecked = !Api.shouldFail
-        sw_switch.setOnCheckedChangeListener { _, isChecked -> Api.shouldFail = !isChecked }
+        sw_api_fail.isChecked = !Api.shouldFail
+        sw_api_fail.setOnCheckedChangeListener { _, isChecked -> Api.shouldFail = !isChecked }
         btn_retry.setOnClickListener {
-            // TODO
-//            pagedListFlow.value.retry()
+            pagedListFlow.value.retry()
+        }
+        sw_diffing_halt.setOnCheckedChangeListener { _, isChecked ->
+
+        }
+        btn_new_pagedlist.setOnClickListener {
+            val thingamabob = Thingamabob<Data>(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData))
+            pagedListFlow.tryEmit(thingamabob.buildPagedList())
         }
         fab.setOnClickListener {
 
@@ -61,7 +65,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launchWhenCreated {
             pagedListFlowState.collect {
                 tv_title.text = it.name
-                btn_retry.visibility = if (it == Thingamabob.State.ERROR) View.VISIBLE else View.GONE
+                btn_retry.isEnabled = it == Thingamabob.State.ERROR
             }
         }
 
@@ -69,7 +73,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupBug_1_solution() {
-        pagedListFlow.value = Thingamabob<Data>(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData)).buildPagedList()//.filter { it.id > 30 }
+        pagedListFlow.value = Thingamabob<Data>(lifecycleScope, 10, CustomDataSource(Repository::getSequentialData)).buildPagedList().filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
     }
 }
 
@@ -85,51 +89,42 @@ abstract class DataSource<T : Any> {
 
 data class PagedList<T : Any>(
     internal val coroutineScope: CoroutineScope,
-    val backingList: Flow<List<T>>,
+    val pages: Flow<Page<T>>,
     val state: Flow<Thingamabob.State>,
-    internal val fetchNextPage: () -> Unit,
+    val fetchNextPage: () -> Unit,
+    val retry: () -> Unit,
     internal val pageSize: Int,
 ) : AbstractList<T>() {
 
-    private val threshold = pageSize
-
-    // TODO: backingList.stateIn, this seems sketchy to have to keep this, why do we expose pages and also want .get() and size to be called from here?
-    private val pagesState = backingList.stateIn(coroutineScope, SharingStarted.Lazily, emptyList())
-
-    init {
-        backingList
-            .onEach {
-                if (it.size - currentPosition <= threshold) fetchNextPage()
-            }
-            .launchIn(coroutineScope)
-
-        pagesState
-            .onEach {
-                Timber.i("SHABAM PagedList pagesState: ${pagesState.value} ${System.identityHashCode(this@PagedList)}")
-            }
-            .launchIn(coroutineScope)
-    }
+    val threshold = pageSize * 2
 
     override val size: Int
-        get() = pagesState.value.size
+        get() = throw UnsupportedOperationException()
 
     private var currentPosition: Int = 0
     override fun get(index: Int): T {
-        currentPosition = index
-
-        if (pagesState.value.size - currentPosition <= threshold) fetchNextPage()
-
-        return pagesState.value[index]
+        throw UnsupportedOperationException()
+//        currentPosition = index
+//
+//        if (pagesState.value.size - currentPosition <= threshold) fetchNextPage()
+//
+//        return pagesState.value[index]
     }
 
 }
 
-fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> = PagedList<R>(coroutineScope, backingList.map { it.map(transform) }, state, fetchNextPage, pageSize)
+fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> = PagedList<R>(coroutineScope,  pages.map { it.map(transform) }, state, fetchNextPage, retry, pageSize)
 
-fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> = PagedList<T>(coroutineScope, backingList.map { it.filter(predicate) }, state, fetchNextPage, pageSize)
+fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> = PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize)
+
+fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(id, items.map(transform))
+
+fun <T : Any> Page<T>.filter(predicate: (T) -> Boolean): Page<T> = Page<T>(id, items.filter(predicate))
+
+
 
 // TODO: Name it
-class Thingamabob<T : Any>(
+data class Thingamabob<T : Any>(
     private val coroutineScope: CoroutineScope,
     private val pageSize: Int,
     private val dataSource: DataSource<T>,
@@ -138,8 +133,7 @@ class Thingamabob<T : Any>(
     // the pagedlist will in turn filter the results if it needs to and it will determine if it should get another page or not,
     // this way all of this logic goes smoothly to the pagedlist side while still separating the logic between these classes
     // ^ Old comment, we're now just using the backingList to always send the full new list and let the differ handle the rest
-    val pageFetched = MutableSharedFlow<Unit>()
-    val backingList = ActionFlow<List<T>>(emptyList())
+    val backingList = ActionFlow<Page<T>>()
     val state = MutableStateFlow(State.IDLE)
     private var hasReachedEnd = false
     private var currentPage = 0
@@ -149,6 +143,7 @@ class Thingamabob<T : Any>(
         backingList,
         state,
         ::tryFetchNextPage,
+        ::retry,
         pageSize
     )
 
@@ -181,7 +176,7 @@ class Thingamabob<T : Any>(
                 //             we now rely on Flow's and backingList is the result flow, in essence how this method communicates with the rest of the system.
                 state.value = State.IDLE
                 hasReachedEnd = result.hasReachedEnd
-                backingList.value += data
+                backingList.value = Page(page, data)
                 // END
 
                 Timber.d("SHABAM getData success result.size: ${data.size}")
@@ -193,6 +188,12 @@ class Thingamabob<T : Any>(
         }
     }
 
+    private fun retry() {
+        if (state.value != State.ERROR) return
+        state.value = State.IDLE
+        tryFetchNextPage()
+    }
+
     enum class State {
         IDLE,
         FETCHING,
@@ -200,102 +201,129 @@ class Thingamabob<T : Any>(
     }
 }
 
-class AsyncPagedListDiffer<T : Any>(
-    private val coroutineScope: CoroutineScope,
-    private val adapter: RecyclerView.Adapter<*>,
-    private val diffCallback: DiffUtil.ItemCallback<T>,
-    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
-    private val diffingDispatcher: CoroutineDispatcher = Dispatchers.Default,
-) {
+//class AsyncPagedListDiffer<T : Any>(
+//    private val coroutineScope: CoroutineScope,
+//    private val adapter: RecyclerView.Adapter<*>,
+//    private val diffCallback: DiffUtil.ItemCallback<T>,
+//    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+//    private val diffingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+//) {
+//
+//    private val listUpdateCallback = DebugListUpdateCallback(adapter)
+//
+//    private val currentPagedList = MutableStateFlow<PagedList<T>?>(null)
+//
+//    init { currentPagedList.map { Timber.i("SHABAM currentPagedList: $it ${System.identityHashCode(it)}") }.launchIn(coroutineScope) }
+//
+//    private val currentBackingList: StateFlow<List<T>?> =
+//        currentPagedList
+//            .flatMapLatest { it?.pages ?: flowOf(null) }
+//            .stateIn(coroutineScope, SharingStarted.Lazily, null)
+//    init { currentBackingList.map { Timber.i("SHABAM currentBackingList: $it ${System.identityHashCode(it)}") }.launchIn(coroutineScope) }
+//
+//    // FIXME: Exposing the pagedlist for .get and .size, and having the differ based on the currentBackingList StateFlow, might be a real problem because
+//    //        currentPagedList and currentBackingList might get unsynced, im not sure if currentPagedList will wait for currentBackingList and if currentBackingList
+//    //        will even wait for the diff, most likely not.... this is gonna be a real problem
+//    fun snapshot() = currentPagedList.value
+//
+//    init {
+//        currentBackingList
+//            .scan<List<T>?, Pair<List<T>?, List<T>?>>(null to null) { (_, old), new ->
+//                old to new
+//            }
+//            .map { (old, new) -> differ(old, new) }
+//            .flowOn(diffingDispatcher)
+//            .onEach { diffResult -> diffResult?.dispatchUpdatesTo(listUpdateCallback) }
+//            .onEach { Timber.i("SHABAM diffResult: $it ${System.identityHashCode(it)}") }
+//            .flowOn(mainDispatcher)
+//            .launchIn(coroutineScope)
+//    }
+//
+//
+//    private fun differ(currentSnapshot: List<T>?, newSnapshot: List<T>?): DiffUtil.DiffResult? {
+//        Timber.d("SHABAM differ current: ${currentSnapshot?.size} new: ${newSnapshot?.size}")
+//        if (currentSnapshot == null && newSnapshot == null) return null
+//        if (currentSnapshot == null && newSnapshot != null) {
+//            listUpdateCallback.onInserted(0, newSnapshot.size)
+//            return null
+//        }
+//        if (currentSnapshot != null && newSnapshot == null) {
+//            listUpdateCallback.onRemoved(0, currentSnapshot.size)
+//            return null
+//        }
+//        require(currentSnapshot != null)
+//        require(newSnapshot != null)
+//
+//        return DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+//            override fun getOldListSize(): Int = currentSnapshot.size
+//            override fun getNewListSize(): Int = newSnapshot.size
+//            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+//                diffCallback.areItemsTheSame(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+//
+//            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+//                diffCallback.areContentsTheSame(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+//
+//            override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? =
+//                diffCallback.getChangePayload(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
+//        })
+//    }
+//
+//    fun submitList(pagedList: PagedList<T>?) {
+//        currentPagedList.value = pagedList
+//    }
+//
+//}
 
-    private val listUpdateCallback = DebugListUpdateCallback(adapter)
-
-    private val currentPagedList = MutableStateFlow<PagedList<T>?>(null)
-    init { currentPagedList.map { Timber.i("SHABAM currentPagedList: $it ${System.identityHashCode(it)}") }.launchIn(coroutineScope) }
-    private val currentBackingList: StateFlow<List<T>?> =
-        currentPagedList
-            .flatMapLatest { it?.backingList ?: flowOf(null) }
-            .stateIn(coroutineScope, SharingStarted.Lazily, null)
-    init { currentBackingList.map { Timber.i("SHABAM currentBackingList: $it ${System.identityHashCode(it)}") }.launchIn(coroutineScope) }
-
-    // FIXME: Exposing the pagedlist for .get and .size, and having the differ based on the currentBackingList StateFlow, might be a real problem because
-    //        currentPagedList and currentBackingList might get unsynced, im not sure if currentPagedList will wait for currentBackingList and if currentBackingList
-    //        will even wait for the diff, most likely not.... this is gonna be a real problem
-    fun snapshot() = currentPagedList.value
-
-    init {
-        currentBackingList
-            .scan<List<T>?, Pair<List<T>?, List<T>?>>(null to null) { (_, old), new ->
-                old to new
-            }
-            .map { (old, new) -> differ(old, new) }
-            .flowOn(diffingDispatcher)
-            .onEach { diffResult -> diffResult?.dispatchUpdatesTo(listUpdateCallback) }
-            .onEach { Timber.i("SHABAM diffResult: $it ${System.identityHashCode(it)}") }
-            .flowOn(mainDispatcher)
-            .launchIn(coroutineScope)
-    }
-
-
-    private fun differ(currentSnapshot: List<T>?, newSnapshot: List<T>?): DiffUtil.DiffResult? {
-        Timber.d("SHABAM differ current: ${currentSnapshot?.size} new: ${newSnapshot?.size}")
-        if (currentSnapshot == null && newSnapshot == null) return null
-        if (currentSnapshot == null && newSnapshot != null) {
-            listUpdateCallback.onInserted(0, newSnapshot.size)
-            return null
-        }
-        if (currentSnapshot != null && newSnapshot == null) {
-            listUpdateCallback.onRemoved(0, currentSnapshot.size)
-            return null
-        }
-        require(currentSnapshot != null)
-        require(newSnapshot != null)
-
-        return DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-            override fun getOldListSize(): Int = currentSnapshot.size
-            override fun getNewListSize(): Int = newSnapshot.size
-            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
-                diffCallback.areItemsTheSame(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
-
-            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
-                diffCallback.areContentsTheSame(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
-
-            override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? =
-                diffCallback.getChangePayload(currentSnapshot[oldItemPosition], newSnapshot[newItemPosition])
-        })
-    }
-
-    fun submitList(pagedList: PagedList<T>?) {
-        currentPagedList.value = pagedList
-    }
-
-}
-
+class Page<T>(val id: Int, val items: List<T>)
 
 abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     private val coroutineScope: CoroutineScope,
     diffUtil: DiffUtil.ItemCallback<T>,
 ) : RecyclerView.Adapter<VH>() {
-    private val differ = AsyncPagedListDiffer<T>(coroutineScope, this, diffUtil)
+    private var pagedList: PagedList<T>? = null
 
+    private var currentList: List<T> = emptyList()
+
+    private lateinit var diffingJob: Job
     fun submitList(newList: PagedList<T>?) {
-        differ.submitList(newList)
-        // TODO: This should only start if or after being attached to a recyclerview, this .start() is a hack
-//        list?.start()
+        if (pagedList == newList) return
+        if (pagedList != null) {
+            if (::diffingJob.isInitialized) diffingJob.cancel()
+            notifyItemRangeRemoved(0, currentList.size)
+            currentList = emptyList()
+        }
+
+        pagedList = newList
+
+        val pagedList = pagedList ?: return
+
+        diffingJob = pagedList.pages
+            .onEach { newPage ->
+                Timber.i("SHABAM Adapter diffingJob.onEach newPage: $newPage currentList: $currentList")
+                val oldList = currentList
+                currentList = currentList + newPage.items
+                if (currentList.size - currentPosition < pagedList.threshold) pagedList.fetchNextPage()
+                notifyItemRangeInserted(oldList.size, newPage.items.size)
+            }
+            .launchIn(coroutineScope)
+
+        pagedList.fetchNextPage()
     }
 
+    private var currentPosition: Int = 0
     protected fun getItem(position: Int): T {
-        val snapshot = differ.snapshot()
-        val item = snapshot?.get(position)!!
-        Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $snapshot ${System.identityHashCode(snapshot)}")
+        currentPosition = position
+        pagedList?.let { pagedList ->
+            if (currentList.size - currentPosition < pagedList.threshold) pagedList.fetchNextPage()
+        }
+        val item = currentList[position]
+        Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
         return item
     }
 
     override fun getItemCount(): Int {
-        val snapshot = differ.snapshot()
-        val size = snapshot?.size ?: 0
-        Timber.i("SHABAM Adapter getItemCount() = $size differ.snapshot: $snapshot ${System.identityHashCode(snapshot)}")
-        return size
+        Timber.i("SHABAM Adapter getItemCount() = ${currentList.size} differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
+        return currentList.size
     }
 }
 
