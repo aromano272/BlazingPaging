@@ -22,9 +22,9 @@ import timber.log.Timber
 
 
 /** TODO:
- *      Add different DataSources that allow user to set next page key
  *      Split library into module
  *      Implement proper samples using real world API's(Reddit et al.), with differing pagination styles(incrementing page number, key for the next page that comes on the result, etc..)
+ *      Allow nullable DataSource Key, to allow the initialKey to be nullable, there are some usecases where the first page has no key, ie. null
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
