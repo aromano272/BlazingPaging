@@ -1,5 +1,6 @@
 package com.andreromano.blazingpaging
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -21,6 +22,9 @@ import timber.log.Timber
 
 
 /** TODO:
+ *      Add different DataSources that allow user to set next page key
+ *      Split library into module
+ *      Implement proper samples using real world API's(Reddit et al.), with differing pagination styles(incrementing page number, key for the next page that comes on the result, etc..)
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
@@ -59,7 +63,8 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
         }
         btn_new_pagedlist.setOnClickListener {
-            val thingamabob = Thingamabob<Data>(lifecycleScope, Thingamabob.Config(10), CustomDataSource(Repository::getSequentialData))
+//            val thingamabob = Thingamabob(lifecycleScope, Thingamabob.Config(1, 10), CustomDataSource(Repository::getSequentialData))
+            val thingamabob = Thingamabob(lifecycleScope, Thingamabob.Config("one", 10), StringDataSource())
             pagedListFlow.tryEmit(thingamabob.buildPagedList())
         }
         fab.setOnClickListener {
@@ -83,7 +88,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
                         Thingamabob.State.Fetching -> FooterAdapter.Item.Loading
                         is Thingamabob.State.Error -> FooterAdapter.Item.Error(it.error.errorMessage)
                     }
-                    footerAdapter.submitList(listOf(footer))
+                    footerAdapter.submitList(listOfNotNull(footer))
                 }
             }
         }
@@ -92,19 +97,19 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     }
 
     private fun setupBug_1_solution() {
-        pagedListFlow.value = Thingamabob<Data>(lifecycleScope,
-            Thingamabob.Config(10),
+        pagedListFlow.value = Thingamabob(lifecycleScope,
+            Thingamabob.Config(1, 10),
             CustomDataSource(Repository::getSequentialData)).buildPagedList() //.filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
     }
 }
 
 
-abstract class DataSource<T : Any> {
-    abstract suspend fun fetchPage(page: Int, pageSize: Int): FetchResult<T>
+abstract class DataSource<Key : Any, Data> {
+    abstract suspend fun fetchPage(key: Key, pageSize: Int): FetchResult<Key, Data>
 
-    sealed class FetchResult<out T> {
-        data class Success<out T>(val data: List<T>, val hasReachedEnd: Boolean) : FetchResult<T>()
-        data class Failure(val error: ErrorKt) : FetchResult<Nothing>()
+    sealed class FetchResult<out Key, out Data> {
+        data class Success<Key, out Data>(val nextPageKey: Key?, val data: List<Data>) : FetchResult<Key, Data>()
+        data class Failure(val error: ErrorKt) : FetchResult<Nothing, Nothing>()
     }
 }
 
@@ -138,21 +143,22 @@ fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> =
 fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> =
     PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
 
-fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(id, items.map(transform))
+fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(items.map(transform))
 
-fun <T : Any> Page<T>.filter(predicate: (T) -> Boolean): Page<T> = Page<T>(id, items.filter(predicate))
+fun <T : Any> Page<T>.filter(predicate: (T) -> Boolean): Page<T> = Page<T>(items.filter(predicate))
 
 
 /**
  * @param prefetchDistance Is the minimum amount of items available in front of the current position before fetching a new page, defaults to pageSize * 2
  */
 // TODO: Name it
-data class Thingamabob<T : Any>(
+data class Thingamabob<Key : Any, T : Any>(
     private val coroutineScope: CoroutineScope,
-    private val config: Config,
-    private val dataSource: DataSource<T>,
+    private val config: Config<Key>,
+    private val dataSource: DataSource<Key, T>,
 ) {
-    data class Config(
+    data class Config<Key>(
+        val initialKey: Key,
         val pageSize: Int,
         val prefetchDistance: Int = pageSize * 2,
     )
@@ -163,8 +169,7 @@ data class Thingamabob<T : Any>(
     // ^ Old comment, we're now just using the backingList to always send the full new list and let the differ handle the rest
     val backingList = ActionFlow<Page<T>>()
     val state = MutableStateFlow<State>(State.Idle)
-    private var hasReachedEnd = false
-    private var currentPage = 0
+    private var nextPageKey: Key? = config.initialKey
 
     fun buildPagedList(): PagedList<T> = PagedList(
         coroutineScope,
@@ -178,8 +183,8 @@ data class Thingamabob<T : Any>(
 
     private lateinit var tryFetchNextPageJob: Job
     private fun tryFetchNextPage() {
-        if (::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive || hasReachedEnd || state.value != State.Idle) {
-            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isActive: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive} || hasReachedEnd: $hasReachedEnd || state.value != State.Idle: ${state.value != State.Idle}")
+        if (::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive || nextPageKey == null || state.value != State.Idle) {
+            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isActive: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive} || hasReachedEnd: ${nextPageKey == null} || state.value != State.Idle: ${state.value != State.Idle}")
             return
         }
 
@@ -189,23 +194,22 @@ data class Thingamabob<T : Any>(
     }
 
     private suspend fun fetchNextPage() {
-        Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
+        Timber.d("SHABAM fetchNextPage() nextPageKey: $nextPageKey")
 
-        val page = currentPage + 1
+        val key = nextPageKey ?: return
         state.value = State.Fetching
-        Timber.d("SHABAM getData($page)")
+        Timber.d("SHABAM getData($key)")
 
-        when (val result = dataSource.fetchPage(page, config.pageSize)) {
+        when (val result = dataSource.fetchPage(key, config.pageSize)) {
             is DataSource.FetchResult.Success -> {
                 val data = result.data
 
-                currentPage++
+                nextPageKey = result.nextPageKey
                 // START TODO: These 2 have a race condition, because when we update backingList, PagedList will call tryFetchNextPage if we still need to get new pages
                 //             and as the state is still FETCHING it will fail, as it stand it works, but this race condition is ugly. or maybe its just ok since
                 //             we now rely on Flow's and backingList is the result flow, in essence how this method communicates with the rest of the system.
                 state.value = State.Idle
-                hasReachedEnd = result.hasReachedEnd
-                backingList.value = Page(page, data)
+                backingList.value = Page(data)
                 // END
 
                 Timber.d("SHABAM getData success result.size: ${data.size}")
@@ -303,7 +307,7 @@ data class Thingamabob<T : Any>(
 //
 //}
 
-class Page<T>(val id: Int, val items: List<T>)
+class Page<T>(val items: List<T>)
 
 class HeaderAdapter : ListAdapter<String, HeaderAdapter.ViewHolder>(EqualityDiffUtil()) {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
@@ -325,16 +329,9 @@ class FooterAdapter(private val retry: () -> Unit) : ListAdapter<FooterAdapter.I
         data class Error(val message: String) : Item()
     }
 
-    override fun getItemViewType(position: Int): Int = try {
-        when (getItem(position)) {
-            Item.Loading -> R.layout.item_loading
-            is Item.Error -> R.layout.item_error
-        }
-    } catch (ex: NoWhenBranchMatchedException) {
-        // TODO: getItem(position) is somehow returning null
-        //       getItem(0) = null
-        Timber.e("NoWhenBranchMatchedException getItem($position): ${getItem(position)}")
-        throw ex
+    override fun getItemViewType(position: Int): Int = when (getItem(position)) {
+        Item.Loading -> R.layout.item_loading
+        is Item.Error -> R.layout.item_error
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = when (viewType) {
@@ -447,5 +444,6 @@ class DebugListUpdateCallback(private val adapter: RecyclerView.Adapter<*>) : Li
 class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
     override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
 
+    @SuppressLint("DiffUtilEquals")
     override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
 }
