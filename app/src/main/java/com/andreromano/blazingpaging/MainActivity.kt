@@ -1,7 +1,9 @@
 package com.andreromano.blazingpaging
 
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.*
@@ -9,15 +11,16 @@ import com.andreromano.blazingpaging.core.ErrorKt
 import com.andreromano.blazingpaging.extensions.ActionFlow
 import com.andreromano.blazingpaging.extensions.value
 import com.andreromano.blazingpaging.other.*
+import kotlinx.android.extensions.LayoutContainer
 import kotlinx.android.synthetic.main.activity_main.*
+import kotlinx.android.synthetic.main.item_error.view.*
+import kotlinx.android.synthetic.main.item_header.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import timber.log.Timber
 
 
 /** TODO:
- *      Headers/Footers
- *      Allow to submit new pagedlist
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
  *      Allow DB+Network
@@ -29,6 +32,14 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         DataPagedListAdapter(lifecycleScope)
     }
 
+    private val footerAdapter by lazy {
+        FooterAdapter({ pagedListFlow.value.retry() })
+    }
+
+    private val concatAdapter by lazy {
+        PagedListAdapterConcat.build(dataAdapter, footerAdapter = footerAdapter, headerAdapter = HeaderAdapter().apply { submitList(listOf("Some header")) })
+    }
+
     private val pagedListFlow = ActionFlow<PagedList<Data>>()
 
     private val pagedListFlowState = pagedListFlow.flatMapLatest { it.state }
@@ -37,7 +48,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         super.onCreate(savedInstanceState)
 
         recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = dataAdapter
+        recyclerView.adapter = concatAdapter
 
         sw_api_fail.isChecked = !Api.shouldFail
         sw_api_fail.setOnCheckedChangeListener { _, isChecked -> Api.shouldFail = !isChecked }
@@ -63,8 +74,17 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
         lifecycleScope.launchWhenCreated {
             pagedListFlowState.collect {
-                tv_title.text = it.name
-                btn_retry.isEnabled = it == Thingamabob.State.ERROR
+                tv_title.text = it.javaClass.simpleName
+                btn_retry.isEnabled = it is Thingamabob.State.Error
+
+                recyclerView.post {
+                    val footer = when (it) {
+                        Thingamabob.State.Idle -> null
+                        Thingamabob.State.Fetching -> FooterAdapter.Item.Loading
+                        is Thingamabob.State.Error -> FooterAdapter.Item.Error(it.error.errorMessage)
+                    }
+                    footerAdapter.submitList(listOf(footer))
+                }
             }
         }
 
@@ -72,7 +92,9 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     }
 
     private fun setupBug_1_solution() {
-        pagedListFlow.value = Thingamabob<Data>(lifecycleScope, Thingamabob.Config(10), CustomDataSource(Repository::getSequentialData)).buildPagedList().filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
+        pagedListFlow.value = Thingamabob<Data>(lifecycleScope,
+            Thingamabob.Config(10),
+            CustomDataSource(Repository::getSequentialData)).buildPagedList() //.filter { it.id % 2 == 0 }.map { it.copy(name = "ALKJDALJ ${it.id}") }
     }
 }
 
@@ -93,7 +115,7 @@ data class PagedList<T : Any> internal constructor(
     val fetchNextPage: () -> Unit,
     val retry: () -> Unit,
     internal val pageSize: Int,
-    val prefetchDistance: Int
+    val prefetchDistance: Int,
 ) : AbstractList<T>() {
 
     override val size: Int
@@ -102,18 +124,19 @@ data class PagedList<T : Any> internal constructor(
     private var currentPosition: Int = 0
     override fun get(index: Int): T {
         throw UnsupportedOperationException()
-//        currentPosition = index
-//
-//        if (pagesState.value.size - currentPosition <= threshold) fetchNextPage()
-//
-//        return pagesState.value[index]
+        //        currentPosition = index
+        //
+        //        if (pagesState.value.size - currentPosition <= threshold) fetchNextPage()
+        //
+        //        return pagesState.value[index]
     }
-
 }
 
-fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> = PagedList<R>(coroutineScope,  pages.map { it.map(transform) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
+fun <T : Any, R : Any> PagedList<T>.map(transform: (T) -> R): PagedList<R> =
+    PagedList<R>(coroutineScope, pages.map { it.map(transform) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
 
-fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> = PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
+fun <T : Any> PagedList<T>.filter(predicate: (T) -> Boolean): PagedList<T> =
+    PagedList<T>(coroutineScope, pages.map { it.filter(predicate) }, state, fetchNextPage, retry, pageSize, prefetchDistance)
 
 fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(id, items.map(transform))
 
@@ -131,7 +154,7 @@ data class Thingamabob<T : Any>(
 ) {
     data class Config(
         val pageSize: Int,
-        val prefetchDistance: Int = pageSize * 2
+        val prefetchDistance: Int = pageSize * 2,
     )
 
     // This is starting to shape up like the PageEvent's the new paging library uses, we need this to signal the PagedList that a new page was fetched
@@ -139,7 +162,7 @@ data class Thingamabob<T : Any>(
     // this way all of this logic goes smoothly to the pagedlist side while still separating the logic between these classes
     // ^ Old comment, we're now just using the backingList to always send the full new list and let the differ handle the rest
     val backingList = ActionFlow<Page<T>>()
-    val state = MutableStateFlow(State.IDLE)
+    val state = MutableStateFlow<State>(State.Idle)
     private var hasReachedEnd = false
     private var currentPage = 0
 
@@ -155,8 +178,8 @@ data class Thingamabob<T : Any>(
 
     private lateinit var tryFetchNextPageJob: Job
     private fun tryFetchNextPage() {
-        if (::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive || hasReachedEnd || state.value != State.IDLE) {
-            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isActive: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive} || hasReachedEnd: $hasReachedEnd || state.value != State.IDLE: ${state.value != State.IDLE}")
+        if (::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive || hasReachedEnd || state.value != State.Idle) {
+            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isActive: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isActive} || hasReachedEnd: $hasReachedEnd || state.value != State.Idle: ${state.value != State.Idle}")
             return
         }
 
@@ -169,7 +192,7 @@ data class Thingamabob<T : Any>(
         Timber.d("SHABAM fetchNextPage() currentPage: $currentPage")
 
         val page = currentPage + 1
-        state.value = State.FETCHING
+        state.value = State.Fetching
         Timber.d("SHABAM getData($page)")
 
         when (val result = dataSource.fetchPage(page, config.pageSize)) {
@@ -180,7 +203,7 @@ data class Thingamabob<T : Any>(
                 // START TODO: These 2 have a race condition, because when we update backingList, PagedList will call tryFetchNextPage if we still need to get new pages
                 //             and as the state is still FETCHING it will fail, as it stand it works, but this race condition is ugly. or maybe its just ok since
                 //             we now rely on Flow's and backingList is the result flow, in essence how this method communicates with the rest of the system.
-                state.value = State.IDLE
+                state.value = State.Idle
                 hasReachedEnd = result.hasReachedEnd
                 backingList.value = Page(page, data)
                 // END
@@ -188,22 +211,22 @@ data class Thingamabob<T : Any>(
                 Timber.d("SHABAM getData success result.size: ${data.size}")
             }
             is DataSource.FetchResult.Failure -> {
-                state.value = State.ERROR
+                state.value = State.Error(result.error)
                 Timber.d("SHABAM getData failure error: ${result.error}")
             }
         }
     }
 
     private fun retry() {
-        if (state.value != State.ERROR) return
-        state.value = State.IDLE
+        if (state.value !is State.Error) return
+        state.value = State.Idle
         tryFetchNextPage()
     }
 
-    enum class State {
-        IDLE,
-        FETCHING,
-        ERROR
+    sealed class State {
+        object Idle : State()
+        object Fetching : State()
+        data class Error(val error: ErrorKt) : State()
     }
 }
 
@@ -282,6 +305,72 @@ data class Thingamabob<T : Any>(
 
 class Page<T>(val id: Int, val items: List<T>)
 
+class HeaderAdapter : ListAdapter<String, HeaderAdapter.ViewHolder>(EqualityDiffUtil()) {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
+        ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_header, parent, false))
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) = holder.bind(getItem(position))
+
+    class ViewHolder(override val containerView: View) : RecyclerView.ViewHolder(containerView), LayoutContainer {
+        fun bind(header: String) = with(containerView) {
+            tv_header.text = header
+        }
+    }
+}
+
+class FooterAdapter(private val retry: () -> Unit) : ListAdapter<FooterAdapter.Item, FooterAdapter.ViewHolder>(EqualityDiffUtil()) {
+
+    sealed class Item {
+        object Loading : Item()
+        data class Error(val message: String) : Item()
+    }
+
+    override fun getItemViewType(position: Int): Int = try {
+        when (getItem(position)) {
+            Item.Loading -> R.layout.item_loading
+            is Item.Error -> R.layout.item_error
+        }
+    } catch (ex: NoWhenBranchMatchedException) {
+        // TODO: getItem(position) is somehow returning null
+        //       getItem(0) = null
+        Timber.e("NoWhenBranchMatchedException getItem($position): ${getItem(position)}")
+        throw ex
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = when (viewType) {
+        R.layout.item_loading -> ViewHolder.Loading(LayoutInflater.from(parent.context).inflate(viewType, parent, false))
+        R.layout.item_error -> ViewHolder.Error(LayoutInflater.from(parent.context).inflate(viewType, parent, false), retry)
+        else -> throw IllegalStateException()
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) = when (holder) {
+        is ViewHolder.Loading -> {
+        }
+        is ViewHolder.Error -> holder.bind((getItem(position) as Item.Error).message)
+    }
+
+    sealed class ViewHolder(override val containerView: View) : RecyclerView.ViewHolder(containerView), LayoutContainer {
+        class Loading(override val containerView: View) : ViewHolder(containerView)
+        class Error(override val containerView: View, private val retry: () -> Unit) : ViewHolder(containerView) {
+            fun bind(message: String) = with(containerView) {
+                tv_error.text = message
+                ib_retry.setOnClickListener {
+                    retry()
+                }
+            }
+        }
+    }
+}
+
+object PagedListAdapterConcat {
+
+    fun <T : Any> build(
+        pagedItemAdapter: PagedListAdapter<T, *>,
+        headerAdapter: ListAdapter<*, *>? = null,
+        footerAdapter: ListAdapter<*, *>? = null,
+    ) = ConcatAdapter(listOfNotNull(headerAdapter, pagedItemAdapter, footerAdapter))
+}
+
 abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     private val coroutineScope: CoroutineScope,
     diffUtil: DiffUtil.ItemCallback<T>,
@@ -353,4 +442,10 @@ class DebugListUpdateCallback(private val adapter: RecyclerView.Adapter<*>) : Li
         Timber.e("SHABAM DiffUtil onChanged(position: $position, count: $count, payload: $payload)")
         adapter.notifyItemRangeChanged(position, count, payload)
     }
+}
+
+class EqualityDiffUtil<T : Any> : DiffUtil.ItemCallback<T>() {
+    override fun areItemsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
+
+    override fun areContentsTheSame(oldItem: T, newItem: T): Boolean = oldItem == newItem
 }
