@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/other"
+    >
+
+    <fragment
+        android:id="@+id/other"
+        android:name="com.andreromano.blazingpaging.sample.other.OtherFragment"
+        android:label="Other"
+        tools:layout="@layout/fragment_other"
+        />
+
+    <fragment
+        android:id="@+id/reddit"
+        android:name="com.andreromano.blazingpaging.sample.reddit.RedditFragment"
+        android:label="Reddit"
+        tools:layout="@layout/fragment_reddit"
+        />
+
+</navigation>
