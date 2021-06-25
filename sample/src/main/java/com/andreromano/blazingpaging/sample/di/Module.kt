@@ -3,6 +3,7 @@
 package com.andreromano.blazingpaging.sample.di
 
 import com.andreromano.blazingpaging.sample.BuildConfig
+import com.andreromano.blazingpaging.sample.network.mapper.FromBaseResponseToResultKtAdapterFactory
 import com.andreromano.blazingpaging.sample.network.mapper.ResultKtCallAdapterFactory
 import com.andreromano.blazingpaging.sample.reddit.RedditApi
 import com.squareup.moshi.Moshi
@@ -17,7 +18,11 @@ import timber.log.Timber
 
 val appNetworkModule = module {
 
-    single<Moshi> { Moshi.Builder().build() }
+    single<Moshi> {
+        Moshi.Builder()
+            .add(FromBaseResponseToResultKtAdapterFactory())
+            .build()
+    }
 
     single<OkHttpClient> {
         OkHttpClient.Builder()

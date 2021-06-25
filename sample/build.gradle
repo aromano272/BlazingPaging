@@ -24,7 +24,7 @@ android {
         // Add this key to your local.properties file as such: REDDIT_API_KEY="your_api_key"
         buildConfigField "String", "REDDIT_API_KEY", properties["REDDIT_API_KEY"]
         buildConfigField "String", "REDDIT_USERNAME", properties["REDDIT_USERNAME"]
-        buildConfigField "String", "REDDIT_BASE_URL", "\"https://www.reddit.com/api/v1\""
+        buildConfigField "String", "REDDIT_BASE_URL", "\"https://www.reddit.com/api/v1/\""
     }
 
     buildTypes {
@@ -76,6 +76,11 @@ dependencies {
 
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.3.1"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.3.1"
+
+    // Moshi
+    implementation "com.squareup.moshi:moshi:1.12.0"
+    implementation "com.squareup.moshi:moshi-adapters:1.12.0"
+    kapt "com.squareup.moshi:moshi-kotlin-codegen:1.12.0"
 
     // Network
     implementation "com.squareup.retrofit2:retrofit:2.9.0"
