@@ -1,8 +1,8 @@
 package com.andreromano.blazingpaging.sample.other.misc
 
 import com.andreromano.blazingpaging.DataSource
-import com.andreromano.blazingpaging.sample.core.ErrorKt
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import kotlinx.coroutines.delay
 
 class CustomDataSource<Data : Any>(private val fetch: suspend (page: Int, pageSize: Int) -> ResultKt<List<Data>>) : DataSource<Int, Data, ErrorKt>() {

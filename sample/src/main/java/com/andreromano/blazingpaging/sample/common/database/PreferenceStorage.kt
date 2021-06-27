@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
-package com.andreromano.blazingpaging.sample.database
+package com.andreromano.blazingpaging.sample.common.database
 
 import android.content.SharedPreferences
-import com.andreromano.blazingpaging.sample.reddit.model.AccessTokenResult
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
-import java.util.*
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -29,8 +27,6 @@ import kotlin.reflect.KProperty
  */
 interface PreferenceStorage {
 
-    var redditDeviceId: String
-    var redditAccessToken: AccessTokenResult?
 
     fun clearAll()
 }
@@ -43,9 +39,6 @@ class SharedPreferenceStorage constructor(
     moshi: Moshi,
 ) : PreferenceStorage {
 
-    override var redditDeviceId: String by NonnullStringPreference(prefs, UUID.randomUUID().toString())
-
-    override var redditAccessToken: AccessTokenResult? by JsonPreference(prefs, moshi.adapter(AccessTokenResult::class.java), null)
 
     override fun clearAll() {
         prefs.edit().clear().commit()

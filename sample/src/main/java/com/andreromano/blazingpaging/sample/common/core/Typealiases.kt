@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging.sample.core
+package com.andreromano.blazingpaging.sample.common.core
 
 
 typealias Minutes = Int

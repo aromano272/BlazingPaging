@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging.sample.network.mapper
+package com.andreromano.blazingpaging.sample.common.network.mapper
 
 import com.squareup.moshi.FromJson
 import com.squareup.moshi.JsonQualifier

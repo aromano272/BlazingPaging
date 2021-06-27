@@ -1,6 +1,6 @@
-package com.andreromano.blazingpaging.sample.network.mapper
+package com.andreromano.blazingpaging.sample.common.network.mapper
 
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import retrofit2.Call
 import retrofit2.CallAdapter
 import retrofit2.Retrofit

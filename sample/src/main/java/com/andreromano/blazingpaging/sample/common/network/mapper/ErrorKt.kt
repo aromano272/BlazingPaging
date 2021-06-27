@@ -1,6 +1,6 @@
-package com.andreromano.blazingpaging.sample.network.mapper
+package com.andreromano.blazingpaging.sample.common.network.mapper
 
-import com.andreromano.blazingpaging.sample.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
 
 internal fun String?.asApiError(): ErrorKt.Network.ApiError = when (this) {
     "LOGIN_UserNotFound" -> ErrorKt.Network.ApiError.Login.UserNotFound

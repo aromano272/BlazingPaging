@@ -9,24 +9,18 @@ import com.andreromano.blazingpaging.DataSource
 import com.andreromano.blazingpaging.PagedList
 import com.andreromano.blazingpaging.Thingamabob
 import com.andreromano.blazingpaging.sample.R
-import com.andreromano.blazingpaging.sample.core.ErrorKt
-import com.andreromano.blazingpaging.sample.core.ResultKt
-import com.andreromano.blazingpaging.sample.extensions.ActionFlow
-import com.andreromano.blazingpaging.sample.extensions.errorMessage
-import com.andreromano.blazingpaging.sample.extensions.value
-import com.andreromano.blazingpaging.sample.extensions.viewLifecycleScope
-import com.andreromano.blazingpaging.sample.other.FooterAdapter
-import com.andreromano.blazingpaging.sample.other.HeaderAdapter
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.extensions.ActionFlow
+import com.andreromano.blazingpaging.sample.common.extensions.errorMessage
+import com.andreromano.blazingpaging.sample.common.extensions.value
+import com.andreromano.blazingpaging.sample.common.extensions.viewLifecycleScope
+import com.andreromano.blazingpaging.sample.common.ui.FooterAdapter
+import com.andreromano.blazingpaging.sample.common.ui.HeaderAdapter
 import com.andreromano.blazingpaging.sample.other.OtherApi
-import com.andreromano.blazingpaging.sample.other.PagedListAdapterConcat
-import com.andreromano.blazingpaging.sample.other.misc.Data
-import com.andreromano.blazingpaging.sample.other.misc.DataPagedListAdapter
-import com.andreromano.blazingpaging.sample.other.misc.StringDataSource
-import com.andreromano.blazingpaging.sample.reddit.model.ListingResult
+import com.andreromano.blazingpaging.sample.common.ui.PagedListAdapterConcat
 import com.andreromano.blazingpaging.sample.reddit.model.RedditPostResult
 import com.andreromano.blazingpaging.sample.reddit.model.Sort
-import kotlinx.android.synthetic.main.fragment_other.*
-import kotlinx.android.synthetic.main.fragment_reddit.*
 import kotlinx.android.synthetic.main.fragment_reddit.recyclerView
 import kotlinx.android.synthetic.main.view_diagnostics.*
 import kotlinx.coroutines.flow.flatMapLatest
@@ -132,7 +126,8 @@ class RedditFragment : Fragment(R.layout.fragment_reddit) {
             return when (result) {
                 is ResultKt.Success -> {
                     val posts = result.data.data.children.map { it.data }
-                    FetchResult.Success(RedditKey(result.data.data.after, key.count + posts.size), posts)
+                    val nextPageKey = result.data.data.after?.let { RedditKey(it, key.count + posts.size) }
+                    FetchResult.Success(nextPageKey, posts)
                 }
                 is ResultKt.Failure -> FetchResult.Failure(result.error)
             }

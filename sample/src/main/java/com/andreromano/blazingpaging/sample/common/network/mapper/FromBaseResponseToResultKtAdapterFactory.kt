@@ -1,7 +1,7 @@
-package com.andreromano.blazingpaging.sample.network.mapper
+package com.andreromano.blazingpaging.sample.common.network.mapper
 
 
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import com.andreromano.blazingpaging.sample.reddit.model.BaseResponse
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi

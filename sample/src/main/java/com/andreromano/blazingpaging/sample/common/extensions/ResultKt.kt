@@ -1,7 +1,7 @@
-package com.andreromano.blazingpaging.sample.extensions
+package com.andreromano.blazingpaging.sample.common.extensions
 
-import com.andreromano.blazingpaging.sample.core.ErrorKt
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 
 suspend fun <T> ResultKt<T>.toCompletable(): ResultKt<Unit> = this.mapData { Unit }
 

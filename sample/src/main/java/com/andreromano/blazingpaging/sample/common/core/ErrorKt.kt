@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging.sample.core
+package com.andreromano.blazingpaging.sample.common.core
 
 sealed class ErrorKt : Throwable() {
     data class Unknown(override val message: String) : ErrorKt() {

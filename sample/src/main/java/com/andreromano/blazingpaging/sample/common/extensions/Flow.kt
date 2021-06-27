@@ -1,6 +1,6 @@
-package com.andreromano.blazingpaging.sample.extensions
+package com.andreromano.blazingpaging.sample.common.extensions
 
-import com.andreromano.blazingpaging.sample.core.*
+import com.andreromano.blazingpaging.sample.common.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*

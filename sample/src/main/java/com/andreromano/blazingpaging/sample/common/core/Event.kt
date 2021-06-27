@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.andreromano.blazingpaging.sample.core
+package com.andreromano.blazingpaging.sample.common.core
 
 import androidx.lifecycle.Observer
 

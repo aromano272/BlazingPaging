@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging.sample.extensions
+package com.andreromano.blazingpaging.sample.common.extensions
 
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope

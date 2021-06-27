@@ -1,8 +1,8 @@
 package com.andreromano.blazingpaging.sample.other
 
-import com.andreromano.blazingpaging.sample.core.ErrorKt
-import com.andreromano.blazingpaging.sample.core.Millis
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.Millis
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import com.andreromano.blazingpaging.sample.other.misc.Data
 import kotlinx.coroutines.delay
 

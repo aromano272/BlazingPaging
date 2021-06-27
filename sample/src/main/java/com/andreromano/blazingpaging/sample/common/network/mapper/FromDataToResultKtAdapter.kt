@@ -1,7 +1,7 @@
-package com.andreromano.blazingpaging.sample.network.mapper
+package com.andreromano.blazingpaging.sample.common.network.mapper
 
-import com.andreromano.blazingpaging.sample.core.ErrorKt
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.JsonReader
 import com.squareup.moshi.JsonWriter

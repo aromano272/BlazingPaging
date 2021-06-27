@@ -1,6 +1,6 @@
 package com.andreromano.blazingpaging.sample.reddit
 
-import com.andreromano.blazingpaging.sample.core.ResultKt
+import com.andreromano.blazingpaging.sample.common.core.ResultKt
 import com.andreromano.blazingpaging.sample.reddit.model.ListingResult
 import com.andreromano.blazingpaging.sample.reddit.model.Sort
 

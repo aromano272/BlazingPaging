@@ -1,18 +1,16 @@
 @file:Suppress("RemoveExplicitTypeArguments")
 
-package com.andreromano.blazingpaging.sample.di
+package com.andreromano.blazingpaging.sample.common.di
 
 import android.content.Context
 import com.andreromano.blazingpaging.sample.BuildConfig
-import com.andreromano.blazingpaging.sample.database.PreferenceStorage
-import com.andreromano.blazingpaging.sample.database.SharedPreferenceStorage
-import com.andreromano.blazingpaging.sample.network.mapper.FromDataToResultKtAdapterFactory
-import com.andreromano.blazingpaging.sample.network.mapper.ResultKtCallAdapterFactory
+import com.andreromano.blazingpaging.sample.common.database.PreferenceStorage
+import com.andreromano.blazingpaging.sample.common.database.SharedPreferenceStorage
+import com.andreromano.blazingpaging.sample.common.network.mapper.FromDataToResultKtAdapterFactory
+import com.andreromano.blazingpaging.sample.common.network.mapper.ResultKtCallAdapterFactory
 import com.andreromano.blazingpaging.sample.reddit.RedditApi
 import com.andreromano.blazingpaging.sample.reddit.RedditRepository
-import com.andreromano.blazingpaging.sample.reddit.model.Sort
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.adapters.EnumJsonAdapter
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.core.parameter.parametersOf
