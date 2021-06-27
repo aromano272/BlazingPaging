@@ -39,17 +39,17 @@ fun <T> Flow<ResultKt<T>>.toResultCompletable(): Flow<ResultKt<Unit>> =
 fun <X, Y> Flow<ResultKt<X>>.mapResultData(body: suspend (X) -> Y): Flow<ResultKt<Y>> =
     map { it.mapData(body) }
 
-fun <T> Flow<Resource<T>>.onEachResourceSuccess(body: suspend (T) -> Unit): Flow<Resource<T>> =
-    onEach { if (it is Resource.Success) body(it.data) }
+fun <T> Flow<Resource<T>>.onEachResourceSuccess(body: suspend (Resource.Success<T>) -> Unit): Flow<Resource<T>> =
+    onEach { if (it is Resource.Success) body(it) }
 
-fun <T> Flow<Resource<T>>.onEachResourceFailure(body: suspend (ErrorKt) -> Unit): Flow<Resource<T>> =
-    onEach { if (it is Resource.Failure) body(it.error) }
+fun <T> Flow<Resource<T>>.onEachResourceFailure(body: suspend (Resource.Failure) -> Unit): Flow<Resource<T>> =
+    onEach { if (it is Resource.Failure) body(it) }
 
-fun <T> Flow<ResultKt<T>>.onEachResultSuccess(body: suspend (ResultKt.Success<T>) -> Unit): Flow<ResultKt<T>> =
-    onEach { if (it is ResultKt.Success) body(it) }
+fun <T> Flow<ResultKt<T>>.onEachResultSuccess(body: suspend (T) -> Unit): Flow<ResultKt<T>> =
+    onEach { if (it is ResultKt.Success) body(it.data) }
 
-fun <T> Flow<ResultKt<T>>.onEachResultFailure(body: suspend (ResultKt.Failure) -> Unit): Flow<ResultKt<T>> =
-    onEach { if (it is ResultKt.Failure) body(it) }
+fun <T> Flow<ResultKt<T>>.onEachResultFailure(body: suspend (ErrorKt) -> Unit): Flow<ResultKt<T>> =
+    onEach { if (it is ResultKt.Failure) body(it.error) }
 
 fun <T> Flow<Resource<T>>.toResult(): Flow<ResultKt<T>> =
     mapNotNull {

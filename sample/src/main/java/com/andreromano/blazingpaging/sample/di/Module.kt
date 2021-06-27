@@ -2,11 +2,17 @@
 
 package com.andreromano.blazingpaging.sample.di
 
+import android.content.Context
 import com.andreromano.blazingpaging.sample.BuildConfig
-import com.andreromano.blazingpaging.sample.network.mapper.FromBaseResponseToResultKtAdapterFactory
+import com.andreromano.blazingpaging.sample.database.PreferenceStorage
+import com.andreromano.blazingpaging.sample.database.SharedPreferenceStorage
+import com.andreromano.blazingpaging.sample.network.mapper.FromDataToResultKtAdapterFactory
 import com.andreromano.blazingpaging.sample.network.mapper.ResultKtCallAdapterFactory
 import com.andreromano.blazingpaging.sample.reddit.RedditApi
+import com.andreromano.blazingpaging.sample.reddit.RedditRepository
+import com.andreromano.blazingpaging.sample.reddit.model.Sort
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapters.EnumJsonAdapter
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.core.parameter.parametersOf
@@ -20,7 +26,7 @@ val appNetworkModule = module {
 
     single<Moshi> {
         Moshi.Builder()
-            .add(FromBaseResponseToResultKtAdapterFactory())
+            .add(FromDataToResultKtAdapterFactory())
             .build()
     }
 
@@ -50,6 +56,25 @@ val appNetworkModule = module {
 
     single<RedditApi> {
         get<Retrofit> { parametersOf(BuildConfig.REDDIT_BASE_URL) }.create(RedditApi::class.java)
+    }
+
+}
+
+val appDatabaseModule = module {
+
+    single<PreferenceStorage> {
+        SharedPreferenceStorage(
+            get<Context>().getSharedPreferences("prefs", Context.MODE_PRIVATE),
+            get()
+        )
+    }
+
+}
+
+val appDataModule = module {
+
+    single<RedditRepository> {
+        RedditRepository(get())
     }
 
 }

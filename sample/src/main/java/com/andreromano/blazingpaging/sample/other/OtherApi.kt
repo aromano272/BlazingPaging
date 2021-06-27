@@ -54,7 +54,7 @@ object OtherApi {
         delay(delay)
         return when (shouldFail) {
             false -> ResultKt.Success(call())
-            true -> ResultKt.Failure(ErrorKt.Network)
+            true -> ResultKt.Failure(ErrorKt.Network.Generic)
         }
     }
 }

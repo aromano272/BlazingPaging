@@ -1,4 +1,4 @@
-package com.andreromano.blazingpaging.sample.reddit
+package com.andreromano.blazingpaging.sample.reddit.model
 
 import com.andreromano.blazingpaging.sample.core.Seconds
 import com.squareup.moshi.JsonClass

@@ -22,9 +22,9 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // Add this key to your local.properties file as such: REDDIT_API_KEY="your_api_key"
-        buildConfigField "String", "REDDIT_API_KEY", properties["REDDIT_API_KEY"]
-        buildConfigField "String", "REDDIT_USERNAME", properties["REDDIT_USERNAME"]
-        buildConfigField "String", "REDDIT_BASE_URL", "\"https://www.reddit.com/api/v1/\""
+//        buildConfigField "String", "REDDIT_API_KEY", properties["REDDIT_API_KEY"]
+//        buildConfigField "String", "REDDIT_USERNAME", properties["REDDIT_USERNAME"]
+        buildConfigField "String", "REDDIT_BASE_URL", "\"https://www.reddit.com/\""
     }
 
     buildTypes {

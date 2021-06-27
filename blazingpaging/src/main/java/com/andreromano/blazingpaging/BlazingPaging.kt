@@ -18,6 +18,8 @@ import timber.log.Timber
  *      AsyncDiffUtil for submitList(pagedList)
  */
 
+// TODO: Key should be able to be null, it's currently not because I'd have to find a way to differentiate between "its null because its the first page" and "its null because there are no more pages"
+//       This could be as simple as setting a flag in the thingamabob
 abstract class DataSource<Key : Any, Data, ErrorType> {
     abstract suspend fun fetchPage(key: Key, pageSize: Int): FetchResult<Key, Data, ErrorType>
 
@@ -246,7 +248,7 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
 
         diffingJob = pagedList.pages
             .onEach { newPage ->
-                Timber.i("SHABAM Adapter diffingJob.onEach newPage: $newPage currentList: $currentList")
+//                Timber.i("SHABAM Adapter diffingJob.onEach newPage: $newPage currentList: $currentList")
                 val oldList = currentList
                 currentList = currentList + newPage.items
                 if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
@@ -264,12 +266,12 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
             if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
         }
         val item = currentList[position]
-        Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
+//        Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
         return item
     }
 
     override fun getItemCount(): Int {
-        Timber.i("SHABAM Adapter getItemCount() = ${currentList.size} differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
+//        Timber.i("SHABAM Adapter getItemCount() = ${currentList.size} differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
         return currentList.size
     }
 }

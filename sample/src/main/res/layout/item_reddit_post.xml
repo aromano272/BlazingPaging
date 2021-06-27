@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="8dp"
+    >
+
+    <!--  TODO: Once we implement "Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)"  -->
+    <!--  Page Header  -->
+
+    <TextView
+        android:id="@+id/tv_page_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:gravity="center"
+        android:textSize="20sp"
+        android:background="@color/black"
+        android:textColor="@color/white"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="Page 2"
+        />
+
+    <TextView
+        android:id="@+id/tv_score"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        app:layout_goneMarginTop="0dp"
+        android:padding="8dp"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:textColor="@color/black"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tv_page_header"
+        tools:text="50"
+        />
+
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        app:layout_goneMarginTop="0dp"
+        android:layout_marginStart="8dp"
+        android:textSize="16sp"
+        android:textColor="@color/black"
+        android:maxLines="2"
+        app:layout_constraintStart_toEndOf="@id/tv_score"
+        app:layout_constraintTop_toBottomOf="@id/tv_page_header"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:text="Some reddit post title"
+        />
+
+    <TextView
+        android:id="@+id/tv_author"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintStart_toStartOf="@id/tv_title"
+        app:layout_constraintTop_toBottomOf="@id/tv_title"
+        tools:text="Author"
+        />
+
+    <TextView
+        android:id="@+id/tv_timestamp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textColor="@color/black"
+        app:layout_constraintTop_toTopOf="@id/tv_author"
+        app:layout_constraintStart_toEndOf="@id/tv_author"
+        tools:text="16/10/2003"
+        />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

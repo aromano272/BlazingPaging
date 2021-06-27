@@ -64,7 +64,7 @@ class OtherFragment : Fragment(R.layout.fragment_other) {
         btn_new_pagedlist.setOnClickListener {
             //            val thingamabob = Thingamabob(viewLifecycleScope, Thingamabob.Config(1, 10), CustomDataSource(Repository::getSequentialData))
             val thingamabob = Thingamabob(viewLifecycleScope, Thingamabob.Config("one", 10), StringDataSource())
-            pagedListFlow.tryEmit(thingamabob.buildPagedList())
+            pagedListFlow.value = thingamabob.buildPagedList()
         }
 
 

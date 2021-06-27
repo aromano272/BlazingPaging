@@ -1,6 +1,8 @@
 package com.andreromano.blazingpaging.sample
 
 import android.app.Application
+import com.andreromano.blazingpaging.sample.di.appDataModule
+import com.andreromano.blazingpaging.sample.di.appDatabaseModule
 import com.andreromano.blazingpaging.sample.di.appNetworkModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -16,7 +18,9 @@ class App : Application() {
             androidLogger()
             androidContext(this@App)
             modules(
-                appNetworkModule
+                appNetworkModule,
+                appDatabaseModule,
+                appDataModule,
             )
         }
     }

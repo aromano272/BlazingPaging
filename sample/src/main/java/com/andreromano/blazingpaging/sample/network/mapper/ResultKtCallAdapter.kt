@@ -84,7 +84,7 @@ class ResultKtCallAdapter<T>(
                     Timber.e("TIMEOUT EXCEPTION: $newError")
                 }
                 when (error) {
-                    is IOException -> ResultKt.Failure(ErrorKt.Network)
+                    is IOException -> ResultKt.Failure(ErrorKt.Network.Generic)
                     else -> ResultKt.Failure(ErrorKt.Generic)
                 }
             } catch (ex: Exception) {
