@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/nav_graph"
-    app:startDestination="@id/reddit"
+    app:startDestination="@id/database"
     >
 
     <fragment
@@ -19,6 +19,13 @@
         android:name="com.andreromano.blazingpaging.sample.reddit.RedditFragment"
         android:label="Reddit"
         tools:layout="@layout/fragment_reddit"
+        />
+
+    <fragment
+        android:id="@+id/database"
+        android:name="com.andreromano.blazingpaging.sample.database.DatabaseFragment"
+        android:label="Database"
+        tools:layout="@layout/fragment_database"
         />
 
 </navigation>

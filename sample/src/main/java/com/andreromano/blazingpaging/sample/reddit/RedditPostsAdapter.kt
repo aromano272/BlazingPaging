@@ -6,9 +6,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.andreromano.blazingpaging.EqualityDiffUtil
 import com.andreromano.blazingpaging.PagedListAdapter
 import com.andreromano.blazingpaging.sample.R
+import com.andreromano.blazingpaging.sample.common.ui.EqualityDiffUtil
 import com.andreromano.blazingpaging.sample.reddit.model.RedditPostResult
 import kotlinx.android.extensions.LayoutContainer
 import kotlinx.android.synthetic.main.item_reddit_post.view.*

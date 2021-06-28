@@ -3,11 +3,16 @@
 package com.andreromano.blazingpaging.sample.common.di
 
 import android.content.Context
+import androidx.room.Room
+import androidx.room.RoomDatabase
 import com.andreromano.blazingpaging.sample.BuildConfig
 import com.andreromano.blazingpaging.sample.common.database.PreferenceStorage
 import com.andreromano.blazingpaging.sample.common.database.SharedPreferenceStorage
 import com.andreromano.blazingpaging.sample.common.network.mapper.FromDataToResultKtAdapterFactory
 import com.andreromano.blazingpaging.sample.common.network.mapper.ResultKtCallAdapterFactory
+import com.andreromano.blazingpaging.sample.database.AppDatabase
+import com.andreromano.blazingpaging.sample.database.DataDao
+import com.andreromano.blazingpaging.sample.database.DatabaseRepository
 import com.andreromano.blazingpaging.sample.reddit.RedditApi
 import com.andreromano.blazingpaging.sample.reddit.RedditRepository
 import com.squareup.moshi.Moshi
@@ -60,6 +65,17 @@ val appNetworkModule = module {
 
 val appDatabaseModule = module {
 
+    single<AppDatabase> {
+        Room.databaseBuilder(get(), AppDatabase::class.java, "AppDatabase")
+            .createFromAsset("database/sqlite.db")
+            .fallbackToDestructiveMigration()
+            .build()
+    }
+
+    single<DataDao> {
+        get<AppDatabase>().dataDao()
+    }
+
     single<PreferenceStorage> {
         SharedPreferenceStorage(
             get<Context>().getSharedPreferences("prefs", Context.MODE_PRIVATE),
@@ -73,6 +89,10 @@ val appDataModule = module {
 
     single<RedditRepository> {
         RedditRepository(get())
+    }
+
+    single<DatabaseRepository> {
+        DatabaseRepository(get())
     }
 
 }
