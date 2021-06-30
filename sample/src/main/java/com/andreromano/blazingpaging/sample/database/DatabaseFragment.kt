@@ -45,7 +45,7 @@ class DatabaseFragment : Fragment(R.layout.fragment_database) {
         PagedListAdapterConcat.build(dataAdapter, footerAdapter = footerAdapter, headerAdapter = HeaderAdapter().apply { submitList(listOf("Some header")) })
     }
 
-    private val pagedListFlow = ActionFlow<PagedList<DataEntity, ErrorKt>>()
+    private val pagedListFlow = ActionFlow<PagedList<DataItem, ErrorKt>>()
 
     private val pagedListFlowState = pagedListFlow.flatMapLatest { it.state }
 
@@ -64,7 +64,7 @@ class DatabaseFragment : Fragment(R.layout.fragment_database) {
 
         }
         btn_new_pagedlist.setOnClickListener {
-            // TODO
+            pagedListFlow.value = repository.getDataPagedList(viewLifecycleScope)
         }
 
         pagedListFlow.asLiveData().observe(viewLifecycleOwner) {
@@ -85,7 +85,7 @@ class DatabaseFragment : Fragment(R.layout.fragment_database) {
             }
         }
 
-        pagedListFlow.value = repository.getDataPagedList()
+        pagedListFlow.value = repository.getDataPagedList(viewLifecycleScope)
     }
 
 }

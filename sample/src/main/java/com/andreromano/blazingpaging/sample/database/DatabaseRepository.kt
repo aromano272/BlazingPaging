@@ -1,29 +1,28 @@
 package com.andreromano.blazingpaging.sample.database
 
-import com.andreromano.blazingpaging.DataSource
+import com.andreromano.blazingpaging.DatabaseDataSource
 import com.andreromano.blazingpaging.PagedList
 import com.andreromano.blazingpaging.Thingamabob
 import com.andreromano.blazingpaging.sample.common.core.ErrorKt
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
+import kotlin.coroutines.coroutineContext
 
 class DatabaseRepository(
     private val dataDao: DataDao,
 ) {
 
-    suspend fun getDataPagedList(): PagedList<DataEntity, ErrorKt> = coroutineScope {
-        val thingamabob = Thingamabob<DatabaseKey, DataEntity, ErrorKt>(
-            this,
+    fun getDataPagedList(coroutineScope: CoroutineScope): PagedList<DataItem, ErrorKt> {
+        val thingamabob = Thingamabob<DatabaseKey, DataItem, ErrorKt>(
+            coroutineScope,
             Thingamabob.Config(
                 DatabaseKey(0),
                 20,
             ),
-            DatabaseDataSource(repository)
+            MyDataSource(dataDao),
         )
-        pagedListFlow.value = thingamabob.buildPagedList()
-        TODO()
 
-
+        return thingamabob.buildPagedList()
     }
 
     suspend fun check(id: Int) = dataDao.check(CheckedDataEntity(id))
@@ -37,14 +36,12 @@ class DatabaseRepository(
 
     class MyDataSource(
         private val dataDao: DataDao,
-    ) : DatabaseDataSource<DatabaseKey, DataEntity, ErrorKt>() {
-        override suspend fun fetchPage(key: DatabaseKey, pageSize: Int): FetchResult<DatabaseKey, DataEntity, ErrorKt> {
+    ) : DatabaseDataSource<DatabaseKey, DataItem, ErrorKt>(dataDao.getInvalidationTrigger()) {
+        override suspend fun fetchPage(key: DatabaseKey, pageSize: Int): FetchResult<DatabaseKey, DataItem, ErrorKt> {
             val result = dataDao.getPaged(pageSize, key.offset)
             val nextOffset = if (result.size < pageSize) null else key.offset + pageSize
             val nextPageKey = nextOffset?.let { DatabaseKey(it) }
             return FetchResult.Success(nextPageKey, result)
         }
-
     }
-
 }

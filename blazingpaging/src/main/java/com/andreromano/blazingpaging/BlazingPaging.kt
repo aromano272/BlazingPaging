@@ -1,6 +1,6 @@
 package com.andreromano.blazingpaging
 
-import android.annotation.SuppressLint
+import android.os.Looper
 import androidx.recyclerview.widget.*
 import com.andreromano.blazingpaging.extensions.ActionFlow
 import com.andreromano.blazingpaging.extensions.value
@@ -11,6 +11,7 @@ import timber.log.Timber
 
 /** TODO:
  *      Allow DB, this includes adding invalidation, which in turn will need diffing
+ *      Implement PagedList.combine operator which allows for another flow to map/filter the results, or even alter the list like adding items in the middle
  *      Allow DB+Network
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
@@ -27,7 +28,7 @@ import timber.log.Timber
  * fun getInvalidationTrigger(): Flow<Entity?>
  * ```
  */
-abstract class InvalidatableDataSource<Key : Any, Data, ErrorType>(
+abstract class DatabaseDataSource<Key : Any, Data, ErrorType>(
     override val invalidationTrigger: Flow<*>,
 ) : DataSource<Key, Data, ErrorType>()
 
@@ -49,9 +50,8 @@ abstract class DataSource<Key : Any, Data, ErrorType> {
 //       version of the data, maybe have this in the PagedList and communicate over listeners?
 data class PagedList<T : Any, ErrorType> internal constructor(
     internal val coroutineScope: CoroutineScope,
-    val pages: Flow<Page<T>>,
+    val pageEvents: Flow<PageEvent<T>>,
     val state: Flow<Thingamabob.State<ErrorType>>,
-    val invalidationTrigger: Flow<*>,
     val fetchNextPage: () -> Unit,
     val retry: () -> Unit,
     internal val pageSize: Int,
@@ -72,16 +72,6 @@ data class PagedList<T : Any, ErrorType> internal constructor(
     }
 }
 
-fun <T : Any, E, R : Any> PagedList<T, E>.map(transform: (T) -> R): PagedList<R, E> =
-    PagedList<R, E>(coroutineScope, pages.map { it.map(transform) }, state, invalidationTrigger, fetchNextPage, retry, pageSize, prefetchDistance)
-
-fun <T : Any, E> PagedList<T, E>.filter(predicate: (T) -> Boolean): PagedList<T, E> =
-    PagedList<T, E>(coroutineScope, pages.map { it.filter(predicate) }, state, invalidationTrigger, fetchNextPage, retry, pageSize, prefetchDistance)
-
-fun <T : Any, R : Any> Page<T>.map(transform: (T) -> R): Page<R> = Page<R>(items.map(transform))
-
-fun <T : Any> Page<T>.filter(predicate: (T) -> Boolean): Page<T> = Page<T>(items.filter(predicate))
-
 
 // TODO: Name it
 data class Thingamabob<Key : Any, T : Any, ErrorType>(
@@ -99,31 +89,34 @@ data class Thingamabob<Key : Any, T : Any, ErrorType>(
         val prefetchDistance: Int = pageSize * 2,
     )
 
+    // TODO: While we're fetching the replacement pages after invalidation we stop the pagination all together,
+    //       we're just assuming this comes from the database so it should be quick
+    private var isInvalidated = false
+
     init {
         dataSource.invalidationTrigger
+            .drop(1)
             .onEach {
-                tryFetchNextPageJob.cancel()
-                // We wait for the adapter to request another page after the invalidation, because Thingamabob has no clue what page/s are currently displaying
-                _invalidationTrigger.value = Unit
+                Timber.d("SHABAM invalidationTrigger")
+                require(dataSource is DatabaseDataSource)
+                isInvalidated = true
+                if (::tryFetchNextPageJob.isInitialized) tryFetchNextPageJob.cancel()
+                tryFetchNextPageJob = coroutineScope.launch {
+                    fetchPagesAfterInvalidation()
+                }
             }
             .launchIn(coroutineScope)
     }
 
-    // This is starting to shape up like the PageEvent's the new paging library uses, we need this to signal the PagedList that a new page was fetched
-    // the pagedlist will in turn filter the results if it needs to and it will determine if it should get another page or not,
-    // this way all of this logic goes smoothly to the pagedlist side while still separating the logic between these classes
-    // ^ Old comment, we're now just using the backingList to always send the full new list and let the differ handle the rest
-    private val backingList = ActionFlow<Page<T>>()
+    private val pageEvents = ActionFlow<PageEvent<T>>()
+    private var fetchedKeysSinceInvalidation = emptyList<Key>()
     private val state = MutableStateFlow<State<ErrorType>>(State.Idle)
-    private val _invalidationTrigger = ActionFlow<Unit>()
-    private val invalidationTrigger: Flow<*> = _invalidationTrigger
     private var nextPageKey: Key? = config.initialKey
 
     fun buildPagedList(): PagedList<T, ErrorType> = PagedList(
         coroutineScope,
-        backingList,
+        pageEvents,
         state,
-        invalidationTrigger,
         ::tryFetchNextPage,
         ::retry,
         config.pageSize,
@@ -132,20 +125,20 @@ data class Thingamabob<Key : Any, T : Any, ErrorType>(
 
     private lateinit var tryFetchNextPageJob: Job
     private fun tryFetchNextPage() {
-        if (::tryFetchNextPageJob.isInitialized && !tryFetchNextPageJob.isCompleted || nextPageKey == null || state.value != State.Idle) {
-            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isCompleted: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isCompleted} || hasReachedEnd: ${nextPageKey == null} || state.value != State.Idle: ${state.value != State.Idle}")
+        val nextPageKey = nextPageKey
+        if (::tryFetchNextPageJob.isInitialized && !tryFetchNextPageJob.isCompleted || nextPageKey == null || state.value != State.Idle || isInvalidated) {
+            Timber.d("SHABAM tryFetchNextPage() halted tryFetchNextPageJob.isCompleted: ${::tryFetchNextPageJob.isInitialized && tryFetchNextPageJob.isCompleted} || hasReachedEnd: ${nextPageKey == null} || state.value != State.Idle: ${state.value != State.Idle} || isInvalidated: $isInvalidated")
             return
         }
 
         tryFetchNextPageJob = coroutineScope.launch {
-            fetchNextPage()
+            fetchPage(nextPageKey)
         }
     }
 
-    private suspend fun fetchNextPage() {
-        Timber.d("SHABAM fetchNextPage() nextPageKey: $nextPageKey")
+    private suspend fun fetchPage(key: Key) {
+        Timber.d("SHABAM fetchPage($key)")
 
-        val key = nextPageKey ?: return
         state.value = State.Fetching
         Timber.d("SHABAM getData($key)")
 
@@ -154,12 +147,9 @@ data class Thingamabob<Key : Any, T : Any, ErrorType>(
                 val data = result.data
 
                 nextPageKey = result.nextPageKey
-                // START TODO: These 2 have a race condition, because when we update backingList, PagedList will call tryFetchNextPage if we still need to get new pages
-                //             and as the state is still FETCHING it will fail, as it stand it works, but this race condition is ugly. or maybe its just ok since
-                //             we now rely on Flow's and backingList is the result flow, in essence how this method communicates with the rest of the system.
                 state.value = State.Idle
-                backingList.value = Page(data)
-                // END
+                pageEvents.value = PageEvent.PageAppended(Page(data))
+                fetchedKeysSinceInvalidation = fetchedKeysSinceInvalidation + key
 
                 Timber.d("SHABAM getData success result.size: ${data.size}")
             }
@@ -168,6 +158,35 @@ data class Thingamabob<Key : Any, T : Any, ErrorType>(
                 Timber.d("SHABAM getData failure error: ${result.error}")
             }
         }
+    }
+
+    private suspend fun fetchPagesAfterInvalidation() {
+        val keys = fetchedKeysSinceInvalidation
+        Timber.d("SHABAM fetchPages($keys)")
+        state.value = State.Fetching
+        val newPages = mutableListOf<Page<T>>()
+        var newNextPageKey: Key? = null
+
+        keys.forEach { key ->
+            Timber.d("SHABAM getData($key)")
+
+            when (val result = dataSource.fetchPage(key, config.pageSize)) {
+                is DataSource.FetchResult.Success -> {
+                    newPages += Page(result.data)
+                    newNextPageKey = result.nextPageKey
+                    Timber.d("SHABAM getData success result.size: ${result.data.size}")
+                }
+                is DataSource.FetchResult.Failure -> {
+                    throw IllegalStateException("Invalidation is only supported in DatabaseDataSources, and those should not be failing")
+                }
+            }
+        }
+
+        isInvalidated = false
+        pageEvents.value = PageEvent.PagesReplaced(newPages)
+        nextPageKey = newNextPageKey
+
+        state.value = State.Idle
     }
 
     private fun retry() {
@@ -183,7 +202,15 @@ data class Thingamabob<Key : Any, T : Any, ErrorType>(
     }
 }
 
-class Page<T>(val items: List<T>)
+data class Page<T>(
+//    val key: Key,
+    val items: List<T>,
+)
+
+sealed class PageEvent<T> {
+    data class PageAppended<T>(val page: Page<T>) : PageEvent<T>()
+    data class PagesReplaced<T>(val pages: List<Page<T>>) : PageEvent<T>()
+}
 
 abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     private val coroutineScope: CoroutineScope,
@@ -204,22 +231,11 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
 
     private var pagedList: PagedList<T, *>? = null
 
-    private var currentList: List<T> = emptyList()
+    private val differ = AsyncListDiffer<T>(
+        DebugListUpdateCallback(this),
+        AsyncDifferConfig.Builder(diffUtil).build()
+    )
 
-    private fun invalidate() {
-        diffingJob.cancel()
-        // TODO: Now the decision is, should we replace the currentList with an empty list and call notifyItemRangeRemoved or should we wait for the first page for a diff?
-        //       TBH i really want the diffing, and the Thingamabob should also keep the current page, so it fetches the current page, so we can correctly diff it.
-        //       This has to be one of the reasons Paging 2 has different DataSources because some datasources keep their pages on invalidation and some must not do so,
-        //       seeing that Paging 2 cant navigate back, if the client invalidated a network datasource the system has to start from the beginning.
-        //       What i essentially want is for the client to be able to, for example, favorite a listitem, triggering an invalidation, and staying in the same position
-        //       in the list, having seen no change other than the fact that now the item is favorited.
-
-
-        //      TODO: Create togglebutton in the dataentity, so we can simulate invalidation and diffing
-        notifyItemRangeRemoved(0, currentList.size)
-        currentList = emptyList()
-    }
 
     private lateinit var invalidationJob: Job
     private lateinit var diffingJob: Job
@@ -228,32 +244,34 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
         if (pagedList != null) {
             if (::diffingJob.isInitialized) diffingJob.cancel()
             if (::invalidationJob.isInitialized) invalidationJob.cancel()
-            notifyItemRangeRemoved(0, currentList.size)
-            currentList = emptyList()
+            differ.submitList(emptyList())
         }
 
         pagedList = newList
 
         val pagedList = pagedList ?: return
 
-        diffingJob = pagedList.pages
-            .onEach { newPage ->
-//                Timber.i("SHABAM Adapter diffingJob.onEach newPage: $newPage currentList: $currentList")
-                val oldList = currentList
-                currentList = currentList + newPage.items
-                if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
-                notifyItemRangeInserted(oldList.size, newPage.items.size)
-            }
-            .launchIn(coroutineScope)
+        diffingJob = pagedList.pageEvents
+            .onEach { pageEvent ->
+                when (pageEvent) {
+                    is PageEvent.PageAppended -> {
+                        Timber.d("SHABAM PageEvent.PageAppended mainThread: ${Looper.myLooper() == Looper.getMainLooper()}")
+                        val newList = differ.currentList + pageEvent.page.items
+                        differ.submitList(newList) {
+                            if (newList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
+                        }
+                    }
+                    is PageEvent.PagesReplaced -> {
+                        Timber.d("SHABAM PageEvent.PagesReplaced mainThread: ${Looper.myLooper() == Looper.getMainLooper()}")
+                        val newPages = pageEvent.pages
+                        val newList = newPages.flatMap { it.items }
 
-        invalidationJob = pagedList.invalidationTrigger
-            .onEach {
-                // TODO: Do we have to cancel the current diffing? atm we're not diffing and the pagedList.pages job is being canceled in the thingamabob
-
-                // TODO: This adapter doesnt have a way to let the paging system know which page is requires
-                val visibleRange = getVisibleItemRange()
-                pagedList.fetchNextPage(visibleRange)
+                        differ.submitList(newList)
+                        return@onEach
+                    }
+                }
             }
+            .flowOn(Dispatchers.Main)
             .launchIn(coroutineScope)
 
         pagedList.fetchNextPage()
@@ -263,46 +281,69 @@ abstract class PagedListAdapter<T : Any, VH : RecyclerView.ViewHolder>(
     protected fun getItem(position: Int): T {
         currentPosition = position
         pagedList?.let { pagedList ->
-            if (currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
+            if (differ.currentList.size - currentPosition < pagedList.prefetchDistance) pagedList.fetchNextPage()
         }
-        val item = currentList[position]
+        val item = differ.currentList[position]
 //        Timber.i("SHABAM Adapter getItem($position) = $item differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
         return item
     }
 
     override fun getItemCount(): Int {
 //        Timber.i("SHABAM Adapter getItemCount() = ${currentList.size} differ.snapshot: $currentList ${System.identityHashCode(currentList)}")
-        return currentList.size
+        return differ.currentList.size
     }
 
-    private fun getVisibleItemRange(): IntRange =
-        when (val layoutManager = layoutManager) {
-            is LinearLayoutManager -> {
-                val firstItem = layoutManager.findFirstVisibleItemPosition()
-                val lastItem = layoutManager.findLastVisibleItemPosition()
 
-                val visibleRange =
-                    if (firstItem == -1 || lastItem == -1) 0 until 0
-                    else firstItem..lastItem
-
-                visibleRange
-            }
-            is StaggeredGridLayoutManager -> {
-                val firstArray = IntArray(3)
-                val lastArray = IntArray(3)
-                layoutManager.findFirstVisibleItemPositions(firstArray)
-                layoutManager.findLastVisibleItemPositions(lastArray)
-
-                val firstItem = firstArray.filterNot { it == -1 }.minOrNull()
-                val lastItem = lastArray.filterNot { it == -1 }.maxOrNull()
-                val visibleRange =
-                    if (firstItem == null || lastItem == null) 0 until 0
-                    else firstItem..lastItem
-
-                visibleRange
-            }
-            else -> throw UnsupportedOperationException()
-        }
+//    private fun getVisiblePages(): List<Page<T>> {
+//        val visibleRange = getVisibleItemRange()
+//
+//        val visiblePages = mutableListOf<Page<T>>()
+//
+//        var lastSeenRange: IntRange? = null
+//        currentPages.forEach { page ->
+//            val pageSize = page.items.size
+//            val start = lastSeenRange?.first?.plus(pageSize) ?: 0
+//            val end = lastSeenRange?.last?.plus(pageSize) ?: pageSize
+//            val range = start until end
+//
+//            if (visibleRange.first in range) {
+//                visiblePages += page
+//            }
+//
+//            lastSeenRange = range
+//        }
+//
+//        return visiblePages
+//    }
+//
+//    private fun getVisibleItemRange(): IntRange =
+//        when (val layoutManager = layoutManager) {
+//            is LinearLayoutManager -> {
+//                val firstItem = layoutManager.findFirstVisibleItemPosition()
+//                val lastItem = layoutManager.findLastVisibleItemPosition()
+//
+//                val visibleRange =
+//                    if (firstItem == -1 || lastItem == -1) 0 until 0
+//                    else firstItem..lastItem
+//
+//                visibleRange
+//            }
+//            is StaggeredGridLayoutManager -> {
+//                val firstArray = IntArray(3)
+//                val lastArray = IntArray(3)
+//                layoutManager.findFirstVisibleItemPositions(firstArray)
+//                layoutManager.findLastVisibleItemPositions(lastArray)
+//
+//                val firstItem = firstArray.filterNot { it == -1 }.minOrNull()
+//                val lastItem = lastArray.filterNot { it == -1 }.maxOrNull()
+//                val visibleRange =
+//                    if (firstItem == null || lastItem == null) 0 until 0
+//                    else firstItem..lastItem
+//
+//                visibleRange
+//            }
+//            else -> throw UnsupportedOperationException()
+//        }
 
 }
 

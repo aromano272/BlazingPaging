@@ -1,9 +1,6 @@
 package com.andreromano.blazingpaging.sample.database
 
-import androidx.room.Dao
-import androidx.room.Delete
-import androidx.room.Insert
-import androidx.room.Query
+import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 
@@ -27,7 +24,7 @@ interface DataDao {
     @Query("SELECT * FROM DataEntity, CheckedDataEntity LIMIT 0")
     fun getInvalidationTrigger(): Flow<Empty?>
 
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun check(id: CheckedDataEntity)
 
     @Delete
