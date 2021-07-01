@@ -12,4 +12,9 @@
         android:title="Reddit"
         />
 
+    <item
+        android:id="@+id/database"
+        android:title="Database"
+        />
+
 </menu>
