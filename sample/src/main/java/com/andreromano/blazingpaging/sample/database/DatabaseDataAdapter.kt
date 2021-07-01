@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 class DatabaseDataAdapter(
     coroutineScope: CoroutineScope,
     private val checkClicked: (DataItem) -> Unit,
-) : PagedListAdapter<DataItem, DatabaseDataAdapter.ViewHolder>(coroutineScope, DIFF_UTIL) {
+) : PagedListAdapter<DatabaseDataAdapter.Item, DatabaseDataAdapter.ViewHolder>(coroutineScope, DIFF_UTIL) {
+
+    data class Item(val data: DataItem, val isLoading: Boolean)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
         ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_data, parent, false), checkClicked)
@@ -25,19 +27,22 @@ class DatabaseDataAdapter(
         override val containerView: View,
         private val checkClicked: (DataItem) -> Unit,
     ) : RecyclerView.ViewHolder(containerView), LayoutContainer {
-        fun bind(item: DataItem) = with(containerView) {
+        fun bind(item: Item) = with(containerView) {
+            val (item, isLoading) = item
             tv_data.text = "${item.id} ${item.title}"
             btn_checked.visibility = View.VISIBLE
             btn_checked.isSelected = item.isChecked
-            btn_checked.setOnClickListener { checkClicked(item) }
+            if (isLoading) btn_checked.setOnClickListener(null)
+            else btn_checked.setOnClickListener { checkClicked(item) }
+            btn_checked.alpha = if (isLoading) 0.5f else 1.0f
         }
     }
 
     companion object {
-        private val DIFF_UTIL = object : DiffUtil.ItemCallback<DataItem>() {
-            override fun areItemsTheSame(oldItem: DataItem, newItem: DataItem): Boolean = oldItem.id == newItem.id
+        private val DIFF_UTIL = object : DiffUtil.ItemCallback<Item>() {
+            override fun areItemsTheSame(oldItem: Item, newItem: Item): Boolean = oldItem.data.id == newItem.data.id
 
-            override fun areContentsTheSame(oldItem: DataItem, newItem: DataItem): Boolean = oldItem == newItem
+            override fun areContentsTheSame(oldItem: Item, newItem: Item): Boolean = oldItem == newItem
         }
     }
 

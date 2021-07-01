@@ -57,6 +57,10 @@ fun <S, O, R> Flow<S>.withLatestFrom(other: Flow<O>, combineFirstEmission: Boole
     }
 }
 
+data class Timestamped<T>(val value: T, val timestamp: Long)
+
+fun <T> Flow<T>.timestamped(): Flow<Timestamped<T>> = map { Timestamped(it, System.currentTimeMillis()) }
+
 //fun <T> Flow<T>.shareHere(viewModel: ViewModel): SharedFlow<T> = this.shareIn(viewModel.viewModelScope, SharingStarted.Lazily, 1)
 
 //fun <T> Flow<Resource<List<T>>>.asListState() =

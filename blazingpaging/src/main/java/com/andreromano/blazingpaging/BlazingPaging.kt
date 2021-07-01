@@ -10,8 +10,6 @@ import timber.log.Timber
 
 
 /** TODO:
- *      Allow DB, this includes adding invalidation, which in turn will need diffing
- *      Implement PagedList.combine operator which allows for another flow to map/filter the results, or even alter the list like adding items in the middle
  *      Allow DB+Network
  *      Add State.DIFFING? Because diffing may take a while
  *      Allow different viewtypes that are not part of the PagedList and are not counted towards the pagination(similar to Epoxy)
